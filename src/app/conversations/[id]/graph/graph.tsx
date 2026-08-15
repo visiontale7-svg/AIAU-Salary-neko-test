@@ -117,9 +117,13 @@ function ClusterNode({ data }: { data: { label: string; color: (typeof CLUSTER_C
 function SemanticEdge(props: EdgeProps<{ label?: string; color: string }>) {
   const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, data } = props;
   const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
-  const t = 0.22;
-  const lx = sourceX + (targetX - sourceX) * t;
-  const ly = sourceY + (targetY - sourceY) * t;
+  // anchor the label a fixed distance past the source card edge, nudged off the line
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const len = Math.hypot(dx, dy) || 1;
+  const dist = Math.min(110, len * 0.45);
+  const lx = sourceX + (dx / len) * dist - (dy / len) * 18;
+  const ly = sourceY + (dy / len) * dist + (dx / len) * 18;
   return (
     <>
       <BaseEdge path={path} markerEnd={markerEnd} style={style} />
@@ -193,16 +197,20 @@ export default function ConversationGraph({
     const maxClusterW = CLUSTER_PAD * 2 + 3 * CARD_W + 2 * 90;
     const gridCols = Math.max(2, Math.round(Math.sqrt(clusterCount * 1.6)));
     const colY: number[] = new Array(gridCols).fill(0);
-    const clusterOrigins: { x: number; y: number }[] = [];
-    for (let c = 0; c < clusterCount; c++) {
+    const clusterOrigins: { x: number; y: number }[] = new Array(clusterCount);
+    const heightOf = (c: number) =>
+      CLUSTER_PAD * 2 + Math.max(1, Math.ceil(clusterSizes[c] / cardColsOf[c])) * (CARD_H + 58);
+    // pack tallest-first into the currently shortest column to balance column heights
+    const order = Array.from({ length: clusterCount }, (_, c) => c).sort(
+      (a, b) => heightOf(b) - heightOf(a)
+    );
+    for (const c of order) {
       const gc = colY.indexOf(Math.min(...colY));
-      const rows = Math.max(1, Math.ceil(clusterSizes[c] / cardColsOf[c]));
-      const h = CLUSTER_PAD * 2 + rows * (CARD_H + 58);
-      clusterOrigins.push({
+      clusterOrigins[c] = {
         x: gc * (maxClusterW + 150) + jitter(c * 7 + 1, 60),
         y: colY[gc] + jitter(c * 13 + 5, 40),
-      });
-      colY[gc] += h + 170;
+      };
+      colY[gc] += heightOf(c) + 170;
     }
 
     const posInCluster: number[] = new Array(messages.length).fill(0);
