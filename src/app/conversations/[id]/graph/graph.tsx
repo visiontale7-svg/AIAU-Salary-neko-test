@@ -4,7 +4,9 @@ import { useMemo } from 'react';
 import ReactFlow, {
   Background,
   Controls,
+  Handle,
   MiniMap,
+  Position,
   type Edge,
   type Node,
   MarkerType,
@@ -31,6 +33,8 @@ function NodeCard({ data }: { data: { id: string; role: string; summary: string 
   const isUser = data.role === 'user';
   return (
     <div className="w-72 rounded-xl border border-gray-300 bg-white p-3 shadow-sm">
+      <Handle type="target" position={Position.Top} className="!bg-transparent !border-0" />
+      <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0" />
       <p className="mb-1 font-mono text-[10px] text-gray-400">{data.id}</p>
       <p className="mb-2 text-sm font-semibold leading-snug">{data.summary}</p>
       <span
