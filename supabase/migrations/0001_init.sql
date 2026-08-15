@@ -1,5 +1,3 @@
-create extension if not exists vector;
-
 create table conversations (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -28,40 +26,12 @@ create table knowledge_cards (
   card_type text not null default 'insight', -- insight | decision | tradeoff | rejected
   content text not null,
   tags text[] not null default '{}',
-  embedding vector(1536),
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-create index knowledge_cards_embedding_idx on knowledge_cards
-  using ivfflat (embedding vector_cosine_ops) with (lists = 100);
-
-create or replace function match_knowledge_cards(
-  query_embedding vector(1536),
-  match_count int default 10,
-  min_similarity float default 0.2
-)
-returns table (
-  id uuid,
-  conversation_id uuid,
-  title text,
-  card_type text,
-  content text,
-  tags text[],
-  created_at timestamptz,
-  similarity float
-)
-language sql stable as $$
-  select
-    kc.id, kc.conversation_id, kc.title, kc.card_type, kc.content, kc.tags, kc.created_at,
-    1 - (kc.embedding <=> query_embedding) as similarity
-  from knowledge_cards kc
-  where kc.embedding is not null
-    and 1 - (kc.embedding <=> query_embedding) > min_similarity
-  order by kc.embedding <=> query_embedding
-  limit match_count;
-$$;
+create index knowledge_cards_title_idx on knowledge_cards using gin (to_tsvector('simple', title || ' ' || content));
 
 alter table conversations enable row level security;
 alter table messages enable row level security;

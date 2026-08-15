@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { embed } from '@/lib/extract';
 import { adminClient } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
@@ -7,12 +6,14 @@ export async function POST(req: NextRequest) {
   if (!query || typeof query !== 'string') {
     return NextResponse.json({ error: 'missing query' }, { status: 400 });
   }
-  const [queryEmbedding] = await embed([query]);
   const supabase = adminClient();
-  const { data, error } = await supabase.rpc('match_knowledge_cards', {
-    query_embedding: queryEmbedding,
-    match_count: 20,
-  });
+  const pattern = `%${query.replace(/[%_]/g, '\\$&')}%`;
+  const { data, error } = await supabase
+    .from('knowledge_cards')
+    .select('id, conversation_id, title, card_type, content, tags, created_at')
+    .or(`title.ilike.${pattern},content.ilike.${pattern}`)
+    .order('created_at', { ascending: false })
+    .limit(20);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

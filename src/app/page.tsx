@@ -12,7 +12,6 @@ interface Card {
   content: string;
   tags: string[];
   created_at: string;
-  similarity?: number;
 }
 
 const TYPE_LABEL: Record<string, { label: string; cls: string }> = {
@@ -80,7 +79,7 @@ export default function Home() {
 
   async function handleImport(file: File) {
     setImporting(true);
-    setStatus('正在导入并提炼知识卡片（可能需要几分钟）…');
+    setStatus('正在导入…');
     try {
       const form = new FormData();
       form.append('file', file);
@@ -104,13 +103,13 @@ export default function Home() {
       <header className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">团队 LLM 知识库</h1>
-          <p className="text-sm text-gray-500">导入 ChatGPT 对话，自动提炼可搜索的团队知识卡片</p>
+          <p className="text-sm text-gray-500">导入 JSONL 或 ChatGPT 对话，沉淀可搜索的团队知识卡片</p>
         </div>
         <div>
           <input
             ref={fileRef}
             type="file"
-            accept=".json,application/json"
+            accept=".json,.jsonl,application/json"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -123,7 +122,7 @@ export default function Home() {
             disabled={importing}
             className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
           >
-            {importing ? '导入中…' : '导入 conversations.json'}
+            {importing ? '导入中…' : '导入 JSONL / conversations.json'}
           </button>
         </div>
       </header>
@@ -134,7 +133,7 @@ export default function Home() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="语义搜索：比如“三周前聊过的缓存方案”"
+          placeholder="搜索知识卡片：比如“缓存方案”"
           className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-black focus:outline-none"
         />
         <button
@@ -170,9 +169,6 @@ export default function Home() {
               <div key={c.id} className="rounded-xl border border-gray-200 p-4 shadow-sm">
                 <div className="mb-2 flex items-center gap-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${t.cls}`}>{t.label}</span>
-                  {typeof c.similarity === 'number' && (
-                    <span className="text-xs text-gray-400">{(c.similarity * 100).toFixed(0)}% 匹配</span>
-                  )}
                 </div>
                 <h2 className="mb-1 font-semibold">{c.title}</h2>
                 <p className="mb-3 whitespace-pre-wrap text-sm text-gray-700">{c.content}</p>

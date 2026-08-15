@@ -1,12 +1,11 @@
 # 团队 LLM 知识库
 
-导入 ChatGPT 网页版导出的对话（conversations.json），用 LLM 自动提炼出结构化知识卡片（灵感 / 决策 / 权衡 / 已否决），支持团队共享、语义搜索与实时更新。
+导入 JSONL 知识卡片或 ChatGPT 网页版导出的对话（conversations.json），沉淀为团队共享、可搜索、实时同步的知识卡片（灵感 / 决策 / 权衡 / 已否决）。
 
 ## 技术栈
 
 - Next.js 14 (App Router, TypeScript, Tailwind)
-- Supabase：Postgres + pgvector（语义检索）+ Realtime（协作实时更新）
-- OpenAI：知识提炼（gpt-4o-mini，可配置）+ 嵌入（text-embedding-3-small）
+- Supabase：Postgres（关键词检索）+ Realtime（协作实时更新）
 
 ## 本地开发
 
@@ -17,7 +16,7 @@ supabase start
 supabase db reset   # 应用 supabase/migrations
 ```
 
-2. 复制 `.env.example` 为 `.env.local`，填入 `supabase start` 输出的 URL/anon key/service role key，以及 `OPENAI_API_KEY`。
+2. 复制 `.env.example` 为 `.env.local`，填入 `supabase start` 输出的 URL/anon key/service role key。
 
 3. 启动：
 
@@ -28,6 +27,11 @@ npm run dev
 
 ## 使用方式
 
-1. 在 ChatGPT 网页版：Settings → Data controls → Export data，从邮件里下载压缩包，取出 `conversations.json`。
-2. 打开首页，点击「导入 conversations.json」。导入会解析每个对话、按 `source_id` 去重、调用 LLM 提炼知识卡片并生成向量。
-3. 用顶部搜索框做语义搜索；卡片可跳回原对话全文。多人同时使用时卡片列表通过 Supabase Realtime 实时同步。
+首页点击「导入 JSONL / conversations.json」，支持两种文件：
+
+1. **JSONL**：每行一个 JSON 对象，两种格式可混用：
+   - 知识卡片：`{"title": "...", "content": "...", "card_type": "insight|decision|tradeoff|rejected", "tags": ["..."]}`（`card_type`/`tags` 可省略）
+   - 完整对话：`{"title": "...", "messages": [{"role": "user|assistant", "content": "..."}]}`
+2. **ChatGPT 官方导出**：Settings → Data controls → Export data，取出压缩包里的 `conversations.json`（按 `conversation_id` 去重）。
+
+用顶部搜索框按关键词搜索卡片；卡片可跳回原对话全文。多人同时使用时卡片列表通过 Supabase Realtime 实时同步。

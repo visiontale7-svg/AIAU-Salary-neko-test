@@ -1,9 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseChatGPTExport } from '@/lib/chatgpt';
-import { extractCards, embed } from '@/lib/extract';
+import { parseChatGPTExport, type ParsedConversation } from '@/lib/chatgpt';
+import { parseJsonl, type JsonlCard } from '@/lib/jsonl';
 import { adminClient } from '@/lib/supabase';
 
 export const maxDuration = 300;
+
+async function insertConversation(
+  supabase: ReturnType<typeof adminClient>,
+  conv: ParsedConversation | { title: string; messages: { role: string; content: string }[]; sourceId?: string | null }
+): Promise<string | null> {
+  const sourceId = 'sourceId' in conv ? conv.sourceId : null;
+  if (sourceId) {
+    const { data: existing } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('source_id', sourceId)
+      .maybeSingle();
+    if (existing) return null;
+  }
+  const { data: convRow, error } = await supabase
+    .from('conversations')
+    .insert({
+      title: conv.title,
+      source: sourceId ? 'chatgpt' : 'jsonl',
+      source_id: sourceId ?? null,
+      message_count: conv.messages.length,
+    })
+    .select('id')
+    .single();
+  if (error || !convRow) return null;
+  await supabase.from('messages').insert(
+    conv.messages.map((m, i) => ({
+      conversation_id: convRow.id,
+      role: m.role,
+      content: m.content,
+      position: i,
+    }))
+  );
+  return convRow.id;
+}
 
 export async function POST(req: NextRequest) {
   const form = await req.formData();
@@ -11,72 +46,55 @@ export async function POST(req: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: 'missing file' }, { status: 400 });
   }
-  let json: unknown;
-  try {
-    json = JSON.parse(await file.text());
-  } catch {
-    return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
-  }
-  const parsed = parseChatGPTExport(json);
-  if (parsed.length === 0) {
-    return NextResponse.json({ error: 'no conversations found in export' }, { status: 400 });
-  }
-
+  const text = await file.text();
   const supabase = adminClient();
-  let imported = 0;
-  let cardsCreated = 0;
 
-  for (const conv of parsed) {
-    if (conv.sourceId) {
-      const { data: existing } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('source_id', conv.sourceId)
-        .maybeSingle();
-      if (existing) continue;
+  let conversations: { title: string; messages: { role: string; content: string }[]; sourceId?: string | null }[] = [];
+  let cards: JsonlCard[] = [];
+  let parseErrors = 0;
+
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith('[')) {
+    // ChatGPT official export (conversations.json)
+    try {
+      conversations = parseChatGPTExport(JSON.parse(text));
+    } catch {
+      return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
     }
-    const { data: convRow, error } = await supabase
-      .from('conversations')
-      .insert({
-        title: conv.title,
-        source: 'chatgpt',
-        source_id: conv.sourceId,
-        message_count: conv.messages.length,
-      })
-      .select('id')
-      .single();
-    if (error || !convRow) continue;
-    imported++;
+  } else {
+    const parsed = parseJsonl(text);
+    conversations = parsed.conversations;
+    cards = parsed.cards;
+    parseErrors = parsed.errors;
+  }
 
-    await supabase.from('messages').insert(
-      conv.messages.map((m, i) => ({
-        conversation_id: convRow.id,
-        role: m.role,
-        content: m.content,
-        position: i,
+  if (conversations.length === 0 && cards.length === 0) {
+    return NextResponse.json({ error: 'no conversations or cards found in file' }, { status: 400 });
+  }
+
+  let imported = 0;
+  for (const conv of conversations) {
+    const id = await insertConversation(supabase, conv);
+    if (id) imported++;
+  }
+
+  let cardsCreated = 0;
+  if (cards.length > 0) {
+    const { error } = await supabase.from('knowledge_cards').insert(
+      cards.map((c) => ({
+        title: c.title,
+        card_type: c.card_type,
+        content: c.content,
+        tags: c.tags,
       }))
     );
-
-    try {
-      const cards = await extractCards(conv.title, conv.messages);
-      if (cards.length > 0) {
-        const embeddings = await embed(cards.map((c) => `${c.title}\n${c.content}`));
-        const { error: cardErr } = await supabase.from('knowledge_cards').insert(
-          cards.map((c, i) => ({
-            conversation_id: convRow.id,
-            title: c.title,
-            card_type: c.card_type,
-            content: c.content,
-            tags: c.tags ?? [],
-            embedding: embeddings[i],
-          }))
-        );
-        if (!cardErr) cardsCreated += cards.length;
-      }
-    } catch (e) {
-      console.error('extraction failed for conversation', convRow.id, e);
-    }
+    if (!error) cardsCreated = cards.length;
   }
 
-  return NextResponse.json({ imported, skipped: parsed.length - imported, cards: cardsCreated });
+  return NextResponse.json({
+    imported,
+    skipped: conversations.length - imported,
+    cards: cardsCreated,
+    parse_errors: parseErrors,
+  });
 }
