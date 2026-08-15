@@ -4,11 +4,15 @@ import { useMemo } from 'react';
 import ReactFlow, {
   Background,
   BackgroundVariant,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
+  getBezierPath,
   Handle,
   MiniMap,
   Position,
   type Edge,
+  type EdgeProps,
   type Node,
   MarkerType,
 } from 'reactflow';
@@ -109,7 +113,37 @@ function ClusterNode({ data }: { data: { label: string; color: (typeof CLUSTER_C
   );
 }
 
+// semantic edge with its label near the source end (avoids midpoint collisions with cards)
+function SemanticEdge(props: EdgeProps<{ label?: string; color: string }>) {
+  const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, data } = props;
+  const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  const t = 0.22;
+  const lx = sourceX + (targetX - sourceX) * t;
+  const ly = sourceY + (targetY - sourceY) * t;
+  return (
+    <>
+      <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+      {data?.label && (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan absolute rounded-lg border bg-white px-1.5 py-0.5 text-[10px] font-semibold shadow-sm"
+            style={{
+              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+              color: data.color,
+              borderColor: data.color,
+              zIndex: 10,
+            }}
+          >
+            {data.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
 const nodeTypes = { message: MessageNode, cluster: ClusterNode };
+const edgeTypes = { semantic: SemanticEdge };
 
 export default function ConversationGraph({
   messages,
@@ -151,27 +185,24 @@ export default function ConversationGraph({
       if (Array.isArray(m.tags)) tagsOf.set(m.index, m.tags.slice(0, 3));
     });
 
-    // pack clusters into a wide 2D grid so fit-view fills the screen
+    // shortest-column packing so variable-height clusters don't leave holes;
+    // big clusters get 3 card columns to stay squat
     const clusterSizes = new Array(clusterCount).fill(0);
     clusterOf.forEach((c) => clusterSizes[c]++);
-    const gridCols = Math.max(2, Math.ceil(Math.sqrt(clusterCount * 1.8)));
-    const clusterW = CLUSTER_PAD * 2 + CARD_W * 2 + 90;
+    const cardColsOf = clusterSizes.map((s: number) => (s > 8 ? 3 : s > 2 ? 2 : Math.max(1, s)));
+    const maxClusterW = CLUSTER_PAD * 2 + 3 * CARD_W + 2 * 90;
+    const gridCols = Math.max(2, Math.round(Math.sqrt(clusterCount * 1.6)));
+    const colY: number[] = new Array(gridCols).fill(0);
     const clusterOrigins: { x: number; y: number }[] = [];
-    let rowY = 0;
-    let rowMaxH = 0;
     for (let c = 0; c < clusterCount; c++) {
-      const gc = c % gridCols;
-      if (gc === 0 && c > 0) {
-        rowY += rowMaxH + 160;
-        rowMaxH = 0;
-      }
-      const rows = Math.max(1, Math.ceil(clusterSizes[c] / 2));
+      const gc = colY.indexOf(Math.min(...colY));
+      const rows = Math.max(1, Math.ceil(clusterSizes[c] / cardColsOf[c]));
       const h = CLUSTER_PAD * 2 + rows * (CARD_H + 58);
-      rowMaxH = Math.max(rowMaxH, h);
       clusterOrigins.push({
-        x: gc * (clusterW + 140) + jitter(c * 7 + 1, 60),
-        y: rowY + jitter(c * 13 + 5, 50),
+        x: gc * (maxClusterW + 150) + jitter(c * 7 + 1, 60),
+        y: colY[gc] + jitter(c * 13 + 5, 40),
       });
+      colY[gc] += h + 170;
     }
 
     const posInCluster: number[] = new Array(messages.length).fill(0);
@@ -181,8 +212,9 @@ export default function ConversationGraph({
     messages.forEach((m, i) => {
       const c = clusterOf[i];
       const j = posInCluster[i];
-      const col = j % 2;
-      const row = Math.floor(j / 2);
+      const cols = cardColsOf[c];
+      const col = j % cols;
+      const row = Math.floor(j / cols);
       const origin = clusterOrigins[c];
       messageNodes.push({
         id: m.id,
@@ -242,14 +274,10 @@ export default function ConversationGraph({
         id: `sem-${k}`,
         source: messages[e.source].id,
         target: messages[e.target].id,
-        type: 'default',
+        type: 'semantic',
         markerEnd: { type: MarkerType.ArrowClosed, color },
-        style: { stroke: color, strokeWidth: 2 },
-        label: e.label,
-        labelBgStyle: { fill: '#ffffff', stroke: color },
-        labelBgPadding: [6, 3],
-        labelBgBorderRadius: 8,
-        labelStyle: { fontSize: 10, fill: color, fontWeight: 600 },
+        style: { stroke: color, strokeWidth: 2, opacity: 0.85 },
+        data: { label: e.label, color },
         zIndex: 3,
       });
     });
@@ -284,7 +312,15 @@ export default function ConversationGraph({
   }
 
   return (
-    <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView minZoom={0.05} style={{ background: '#f6f8fb' }}>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      fitView
+      minZoom={0.05}
+      style={{ background: '#f6f8fb' }}
+    >
       <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#d3dbe6" />
       <Controls />
       <MiniMap pannable zoomable />
