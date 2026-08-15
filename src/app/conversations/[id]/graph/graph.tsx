@@ -29,11 +29,11 @@ const CLUSTER_PAD = 48;
 
 // palette for cluster boxes / dots, mirroring the reference mock
 const CLUSTER_COLORS = [
-  { border: '#34d399', label: '#059669', fill: 'rgba(52,211,153,0.06)' }, // green
-  { border: '#60a5fa', label: '#2563eb', fill: 'rgba(96,165,250,0.06)' }, // blue
-  { border: '#fbbf24', label: '#b45309', fill: 'rgba(251,191,36,0.07)' }, // amber
-  { border: '#f87171', label: '#dc2626', fill: 'rgba(248,113,113,0.06)' }, // red
-  { border: '#a78bfa', label: '#7c3aed', fill: 'rgba(167,139,250,0.07)' }, // violet
+  { border: '#6ee7b7', label: '#059669', fill: 'rgba(52,211,153,0.03)' }, // green
+  { border: '#93c5fd', label: '#2563eb', fill: 'rgba(96,165,250,0.03)' }, // blue
+  { border: '#fcd34d', label: '#b45309', fill: 'rgba(251,191,36,0.035)' }, // amber
+  { border: '#fca5a5', label: '#dc2626', fill: 'rgba(248,113,113,0.03)' }, // red
+  { border: '#c4b5fd', label: '#7c3aed', fill: 'rgba(167,139,250,0.035)' }, // violet
 ];
 
 const EDGE_COLORS = ['#94a3b8', '#93c5fd', '#c4b5fd', '#86efac'];
@@ -67,13 +67,13 @@ function MessageNode({ data }: { data: { fullId: string; role: string; summary: 
   const isUser = data.role === 'user';
   return (
     <div
-      className="rounded-2xl border bg-white p-3.5 shadow-[0_1px_4px_rgba(15,23,42,0.08)]"
-      style={{ width: CARD_W, borderColor: '#cbd5e1' }}
+      className="rounded-xl bg-white p-4 shadow-[0_2px_6px_rgba(15,23,42,0.1)]"
+      style={{ width: CARD_W, border: '2px solid #232f52' }}
     >
       <Handle type="target" position={Position.Left} className="!bg-transparent !border-0 !min-w-0 !min-h-0 !h-1 !w-1" />
       <Handle type="source" position={Position.Right} className="!bg-transparent !border-0 !min-w-0 !min-h-0 !h-1 !w-1" />
-      <p className="mb-1.5 break-all font-mono text-[9px] leading-tight text-slate-400">{data.fullId}</p>
-      <p className="mb-2.5 text-[13px] font-bold leading-snug text-slate-800">{data.summary}</p>
+      <p className="mb-2 break-all font-mono text-[10px] leading-tight text-slate-500">{data.fullId}</p>
+      <p className="mb-3 text-[15px] font-bold leading-snug text-slate-900">{data.summary}</p>
       <div className="flex items-center">
         <span
           className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
@@ -95,7 +95,7 @@ function MessageNode({ data }: { data: { fullId: string; role: string; summary: 
 function ClusterNode({ data }: { data: { label: string; color: (typeof CLUSTER_COLORS)[0]; w: number; h: number } }) {
   return (
     <div
-      className="rounded-3xl border-2 border-dashed"
+      className="rounded-[28px] border-[1.5px] border-dashed"
       style={{ width: data.w, height: data.h, borderColor: data.color.border, background: data.color.fill }}
     >
       <div
@@ -151,15 +151,27 @@ export default function ConversationGraph({
       if (Array.isArray(m.tags)) tagsOf.set(m.index, m.tags.slice(0, 3));
     });
 
-    // stagger clusters diagonally with jitter so the flow feels organic
-    let cursorY = 0;
+    // pack clusters into a wide 2D grid so fit-view fills the screen
+    const clusterSizes = new Array(clusterCount).fill(0);
+    clusterOf.forEach((c) => clusterSizes[c]++);
+    const gridCols = Math.max(2, Math.ceil(Math.sqrt(clusterCount * 1.8)));
+    const clusterW = CLUSTER_PAD * 2 + CARD_W * 2 + 90;
     const clusterOrigins: { x: number; y: number }[] = [];
+    let rowY = 0;
+    let rowMaxH = 0;
     for (let c = 0; c < clusterCount; c++) {
-      const x = (c % 2 === 0 ? 0 : 520) + jitter(c * 7 + 1, 120);
-      clusterOrigins.push({ x, y: cursorY });
-      const size = clusterOf.filter((v) => v === c).length;
-      const rows = Math.max(1, Math.ceil(size / 2));
-      cursorY += rows * (CARD_H + 60) + 180 + jitter(c * 13 + 5, 40);
+      const gc = c % gridCols;
+      if (gc === 0 && c > 0) {
+        rowY += rowMaxH + 160;
+        rowMaxH = 0;
+      }
+      const rows = Math.max(1, Math.ceil(clusterSizes[c] / 2));
+      const h = CLUSTER_PAD * 2 + rows * (CARD_H + 58);
+      rowMaxH = Math.max(rowMaxH, h);
+      clusterOrigins.push({
+        x: gc * (clusterW + 140) + jitter(c * 7 + 1, 60),
+        y: rowY + jitter(c * 13 + 5, 50),
+      });
     }
 
     const posInCluster: number[] = new Array(messages.length).fill(0);
