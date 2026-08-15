@@ -25,7 +25,15 @@ export default async function ConversationPage({ params }: { params: { id: strin
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-10">
-      <Link href="/" className="text-sm text-gray-500 underline">← 返回知识库</Link>
+      <div className="flex items-center justify-between">
+        <Link href="/" className="text-sm text-gray-500 underline">← 返回知识库</Link>
+        <Link
+          href={`/conversations/${conv.id}/graph`}
+          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+        >
+          查看结构图
+        </Link>
+      </div>
       <h1 className="mb-6 mt-2 text-xl font-bold">{conv.title}</h1>
       <div className="space-y-4">
         {(messages ?? []).map((m) => (
