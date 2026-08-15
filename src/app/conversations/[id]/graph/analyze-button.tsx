@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 export default function AnalyzeButton({
   conversationId,
@@ -12,7 +11,6 @@ export default function AnalyzeButton({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   async function run() {
     setLoading(true);
@@ -23,7 +21,7 @@ export default function AnalyzeButton({
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? `HTTP ${res.status}`);
       } else {
-        router.refresh();
+        window.location.reload();
       }
     } catch (e) {
       setError(String(e));
