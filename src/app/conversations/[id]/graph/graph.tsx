@@ -231,7 +231,7 @@ function SemanticEdge(props: EdgeProps<{ label?: string; color: string; rects?: 
         strokeLinecap="round"
         style={{ opacity: data?.dim ? 0.04 : 0.18, filter: 'blur(4px)', pointerEvents: 'none' }}
       />
-      <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+      <BaseEdge path={path} markerEnd={markerEnd} style={style} interactionWidth={0} />
       {data?.label && (
         <EdgeLabelRenderer>
           <div
