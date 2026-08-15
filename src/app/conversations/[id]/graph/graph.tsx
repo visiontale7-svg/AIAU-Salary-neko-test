@@ -112,14 +112,24 @@ function MessageNode({ data }: { data: MessageNodeData }) {
       <Handle type="target" position={Position.Left} className="!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent" />
       <Handle type="source" position={Position.Right} className="!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent" />
       <span
-        className="absolute inset-y-0 left-0 w-[3px]"
-        style={{ background: `linear-gradient(180deg, ${accent}, transparent)` }}
+        className="absolute inset-y-0 left-0 w-[5px]"
+        style={{ background: `linear-gradient(180deg, ${accent}, ${glow}0.15))`, boxShadow: `0 0 14px ${accent}` }}
+      />
+      <span
+        className="absolute inset-x-0 top-0 h-[2px]"
+        style={{ background: `linear-gradient(90deg, ${accent}, transparent 75%)` }}
       />
       <div className="mb-2 flex items-center gap-2">
         <span
-          className="rounded-md px-1.5 py-[2px] text-[10px] font-bold tracking-wide"
-          style={{ color: accent, background: `${glow}0.12)`, border: `1px solid ${glow}0.3)` }}
+          className="flex items-center gap-1 rounded-md px-2 py-[3px] text-[11px] font-bold tracking-wide"
+          style={{
+            color: accent,
+            background: `${glow}0.14)`,
+            border: `1px solid ${glow}0.35)`,
+            boxShadow: `0 0 12px ${glow}0.25)`,
+          }}
         >
+          <span className="text-[12px] leading-none">{isUser ? '◆' : '✦'}</span>
           {isUser ? 'USER' : 'GPT'}
         </span>
         <span className="truncate font-mono text-[9px] tracking-tight text-slate-500">{data.fullId}</span>
@@ -155,13 +165,13 @@ function ClusterNode({ data }: { data: ClusterNodeData }) {
         width: data.w,
         height: data.h,
         borderColor: data.color.stroke,
-        background: data.color.fill,
-        boxShadow: `inset 0 0 60px ${data.color.fill}, 0 0 26px ${data.color.glow}`,
+        background: `radial-gradient(120% 90% at 12% 0%, ${data.color.glow.replace('0.5', '0.16').replace('0.55', '0.16')}, transparent 62%), ${data.color.fill}`,
+        boxShadow: `inset 0 0 90px ${data.color.fill}, 0 0 30px ${data.color.glow}`,
         opacity: data.dim ? 0.25 : 0.85,
       }}
     >
       <div
-        className="absolute -top-[14px] left-7 flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide backdrop-blur"
+        className="absolute -top-[18px] left-7 flex items-center gap-2 rounded-full px-4 py-[7px] text-[14px] font-semibold tracking-wide backdrop-blur"
         style={{
           color: data.color.stroke,
           background: 'rgba(2,6,23,0.85)',
@@ -170,7 +180,7 @@ function ClusterNode({ data }: { data: ClusterNodeData }) {
         }}
       >
         <span
-          className="graph-pulse h-1.5 w-1.5 rounded-full"
+          className="graph-pulse h-2 w-2 rounded-full"
           style={{ background: data.color.stroke, boxShadow: `0 0 10px ${data.color.stroke}` }}
         />
         {data.label}
@@ -219,7 +229,7 @@ function SemanticEdge(props: EdgeProps<{ label?: string; color: string; rects?: 
         stroke={color}
         strokeWidth={7}
         strokeLinecap="round"
-        style={{ opacity: (data?.dim ? 0.04 : 0.18), filter: 'blur(4px)' }}
+        style={{ opacity: data?.dim ? 0.04 : 0.18, filter: 'blur(4px)', pointerEvents: 'none' }}
       />
       <BaseEdge path={path} markerEnd={markerEnd} style={style} />
       {data?.label && (
@@ -294,6 +304,7 @@ function GraphInner({
   savedPositions: GraphPositions | null;
 }) {
   const base = useMemo(() => {
+    const build = (saved: GraphPositions | null) => {
     const messageNodes: Node[] = [];
     const clusterNodes: Node[] = [];
     const edges: Edge[] = [];
@@ -364,7 +375,7 @@ function GraphInner({
       messageNodes.push({
         id: m.id,
         type: 'message',
-        position: savedPositions?.[m.id] ?? generated,
+        position: saved?.[m.id] ?? generated,
         data: {
           fullId: m.id,
           role: m.role,
@@ -430,7 +441,7 @@ function GraphInner({
     messages.slice(1).forEach((m, i) => {
       const prev = messages[i];
       const crossCluster = clusterOf[i] !== clusterOf[i + 1];
-      const color = crossCluster ? '#f0abfc' : '#334f6d';
+      const color = crossCluster ? '#f0abfc' : '#3f6b95';
       const semLabel = flowLabelOf.get(i);
       const labelled = semLabel != null || (!analysis && prev.role === 'user' && (crossCluster || i % 3 === 0));
       edges.push({
@@ -450,6 +461,14 @@ function GraphInner({
     });
 
     return { nodes: [...clusterNodes, ...messageNodes], edges };
+    };
+
+    // keep the generated layout around so 「整理布局」 can restore it client-side
+    const current = build(savedPositions);
+    return {
+      ...current,
+      generatedNodes: savedPositions ? build(null).nodes : current.nodes,
+    };
   }, [messages, analysis, savedPositions]);
 
   const [nodes, setNodes] = useState<Node[]>(base.nodes);
@@ -461,6 +480,7 @@ function GraphInner({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cursorAt = useRef(0);
   const wrapper = useRef<HTMLDivElement | null>(null);
+  const generatedRef = useRef<Node[]>(base.generatedNodes);
   const me = useMemo(() => {
     const n = Math.floor(Math.random() * PEER_NAMES.length);
     return {
@@ -471,6 +491,9 @@ function GraphInner({
   }, []);
 
   useEffect(() => setNodes(base.nodes), [base.nodes]);
+  useEffect(() => {
+    generatedRef.current = base.generatedNodes;
+  }, [base.generatedNodes]);
 
   // realtime channel: peer cursors + live node movement
   useEffect(() => {
@@ -484,6 +507,7 @@ function GraphInner({
       const { id, x, y } = payload as { id: string; x: number; y: number };
       setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, position: { x, y } } : n)));
     });
+    ch.on('broadcast', { event: 'reset' }, () => setNodes(generatedRef.current));
     ch.subscribe();
     channelRef.current = ch;
     const prune = setInterval(
@@ -621,10 +645,14 @@ function GraphInner({
     [me]
   );
 
+  // restore the generated layout in place; a reload can be served a cached
+  // RSC payload that still carries the old saved positions
   const resetLayout = useCallback(async () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setNodes(base.generatedNodes);
+    channelRef.current?.send({ type: 'broadcast', event: 'reset', payload: {} });
     await fetch(`/api/conversations/${conversationId}/positions`, { method: 'DELETE' }).catch(() => {});
-    window.location.reload();
-  }, [conversationId]);
+  }, [conversationId, base.generatedNodes]);
 
   if (messages.length === 0) {
     return <p className="p-10 text-center text-sm text-slate-500">该对话没有消息</p>;
@@ -660,26 +688,30 @@ function GraphInner({
       </ReactFlow>
 
       <div className="pointer-events-none absolute left-4 top-4 z-30 flex flex-col gap-2">
-        <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1.5 text-[11px] text-slate-300 backdrop-blur">
+        <div className="pointer-events-auto flex items-center gap-4 rounded-2xl border border-white/[0.08] bg-slate-950/70 px-4 py-2.5 text-[11px] text-slate-300 shadow-[0_10px_40px_rgba(2,6,23,0.7)] backdrop-blur-xl">
           <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />用户
+            <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]" />用户
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-purple-400 shadow-[0_0_8px_#c084fc]" />GPT
+            <span className="h-2 w-2 rounded-full bg-purple-400 shadow-[0_0_10px_#c084fc]" />GPT
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-[2px] w-4 bg-purple-400" />语义引用
+            <span className="h-[2px] w-5 bg-purple-400 shadow-[0_0_8px_#c084fc]" />语义引用
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-[2px] w-4 bg-rose-400" />纠正
+            <span className="h-[2px] w-5 bg-rose-400 shadow-[0_0_8px_#fb7185]" />纠正
           </span>
+          <span className="h-4 w-px bg-white/10" />
           <button
             onClick={resetLayout}
-            className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300"
+            className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-medium text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300"
           >
             整理布局
           </button>
-          <span className="text-[10px] text-slate-500">
+          <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${saving ? 'bg-amber-400' : 'graph-pulse bg-emerald-400'}`}
+            />
             {saving ? '保存位置…' : `在线 ${peers.length + 1}`}
           </span>
         </div>
