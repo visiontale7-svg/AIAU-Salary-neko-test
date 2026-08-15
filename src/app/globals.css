@@ -25,3 +25,90 @@ body {
     text-wrap: balance;
   }
 }
+
+/* ---- conversation structure graph (dark neon canvas) ---- */
+
+.graph-canvas {
+  background:
+    radial-gradient(1200px 700px at 18% 12%, rgba(56, 189, 248, 0.1), transparent 60%),
+    radial-gradient(1000px 700px at 82% 78%, rgba(168, 85, 247, 0.12), transparent 60%),
+    linear-gradient(160deg, #060b1a 0%, #020617 55%, #050a17 100%);
+}
+
+@keyframes graph-node-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.graph-node-in {
+  animation: graph-node-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes graph-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(1.6);
+  }
+}
+
+.graph-pulse {
+  animation: graph-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes graph-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.graph-panel-in {
+  animation: graph-panel-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* subtle glow on every edge + faster dash animation for semantic branches */
+.graph-canvas .react-flow__edge-path {
+  filter: drop-shadow(0 0 3px rgba(148, 163, 184, 0.35));
+}
+
+.graph-canvas .react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 6 7;
+  animation: dashdraw 0.45s linear infinite;
+}
+
+.graph-canvas .react-flow__node-message {
+  cursor: grab;
+}
+
+.graph-canvas .react-flow__node-message:active {
+  cursor: grabbing;
+}
+
+.graph-controls button {
+  background: rgba(2, 6, 23, 0.85) !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #cbd5e1 !important;
+}
+
+.graph-controls button:hover {
+  background: rgba(30, 41, 59, 0.95) !important;
+}
+
+.graph-controls svg {
+  fill: #cbd5e1;
+}

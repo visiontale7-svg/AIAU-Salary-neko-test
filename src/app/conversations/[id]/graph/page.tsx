@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { adminClient } from '@/lib/supabase';
-import ConversationGraph from './graph';
+import ConversationGraph, { type GraphPositions } from './graph';
 import AnalyzeButton from './analyze-button';
 import type { ConversationAnalysis } from '@/lib/analyze';
 
@@ -9,7 +9,11 @@ export const dynamic = 'force-dynamic';
 export default async function GraphPage({ params }: { params: { id: string } }) {
   const supabase = adminClient();
   const [{ data: conv }, { data: messages }] = await Promise.all([
-    supabase.from('conversations').select('id, title, analysis').eq('id', params.id).single(),
+    supabase
+      .from('conversations')
+      .select('id, title, analysis, graph_positions')
+      .eq('id', params.id)
+      .single(),
     supabase
       .from('messages')
       .select('id, role, content, position')
@@ -27,23 +31,32 @@ export default async function GraphPage({ params }: { params: { id: string } }) 
   }
 
   return (
-    <main className="flex h-screen flex-col">
-      <header className="flex items-center gap-4 border-b border-gray-200 px-6 py-3">
-        <Link href={`/conversations/${conv.id}`} className="text-sm text-gray-500 underline">← 返回对话</Link>
-        <h1 className="truncate text-sm font-semibold">{conv.title} · 结构图</h1>
-        <span className="ml-auto flex items-center gap-2">
+    <main className="flex h-screen flex-col bg-slate-950">
+      <header className="flex items-center gap-4 border-b border-white/10 bg-slate-950/90 px-6 py-3 backdrop-blur">
+        <Link href={`/conversations/${conv.id}`} className="text-sm text-slate-400 transition hover:text-cyan-300">
+          ← 返回对话
+        </Link>
+        <h1 className="truncate text-sm font-semibold text-slate-100">
+          {conv.title}
+          <span className="ml-2 text-slate-500">· 结构图</span>
+        </h1>
+        <span className="ml-auto flex items-center gap-3">
           {conv.analysis ? (
-            <span className="text-xs text-emerald-600">已语义分析</span>
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />已语义分析
+            </span>
           ) : (
-            <span className="text-xs text-gray-400">启发式布局</span>
+            <span className="text-xs text-slate-500">启发式布局</span>
           )}
           <AnalyzeButton conversationId={conv.id} hasAnalysis={!!conv.analysis} />
         </span>
       </header>
       <div className="flex-1">
         <ConversationGraph
+          conversationId={conv.id}
           messages={messages ?? []}
           analysis={(conv.analysis as ConversationAnalysis | null) ?? null}
+          savedPositions={(conv.graph_positions as GraphPositions | null) ?? null}
         />
       </div>
     </main>
