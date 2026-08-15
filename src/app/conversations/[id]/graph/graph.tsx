@@ -13,6 +13,7 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import type { ConversationAnalysis } from '@/lib/analyze';
 
 interface Message {
   id: string;
@@ -110,12 +111,45 @@ function ClusterNode({ data }: { data: { label: string; color: (typeof CLUSTER_C
 
 const nodeTypes = { message: MessageNode, cluster: ClusterNode };
 
-export default function ConversationGraph({ messages }: { messages: Message[] }) {
+export default function ConversationGraph({
+  messages,
+  analysis,
+}: {
+  messages: Message[];
+  analysis: ConversationAnalysis | null;
+}) {
   const { nodes, edges } = useMemo(() => {
     const messageNodes: Node[] = [];
     const clusterNodes: Node[] = [];
     const edges: Edge[] = [];
-    const clusterCount = Math.ceil(messages.length / CLUSTER_SIZE);
+
+    // cluster membership: semantic analysis if available, else fixed-size chunks
+    const clusterOf: number[] = new Array(messages.length).fill(-1);
+    let clusterLabels: (string | null)[] = [];
+    if (analysis) {
+      const sorted = [...analysis.clusters].sort(
+        (a, b) => Math.min(...a.message_indices) - Math.min(...b.message_indices)
+      );
+      sorted.forEach((c, ci) => c.message_indices.forEach((i) => {
+        if (i >= 0 && i < messages.length && clusterOf[i] === -1) clusterOf[i] = ci;
+      }));
+      clusterLabels = sorted.map((c) => c.label);
+      // any unassigned message joins the previous message's cluster
+      for (let i = 0; i < clusterOf.length; i++) {
+        if (clusterOf[i] === -1) clusterOf[i] = i > 0 ? clusterOf[i - 1] : 0;
+      }
+    } else {
+      for (let i = 0; i < messages.length; i++) clusterOf[i] = Math.floor(i / CLUSTER_SIZE);
+      clusterLabels = new Array(Math.ceil(messages.length / CLUSTER_SIZE)).fill(null);
+    }
+    const clusterCount = clusterLabels.length;
+
+    const titleOf = new Map<number, string>();
+    const tagsOf = new Map<number, string[]>();
+    analysis?.messages.forEach((m) => {
+      titleOf.set(m.index, m.title);
+      if (Array.isArray(m.tags)) tagsOf.set(m.index, m.tags.slice(0, 3));
+    });
 
     // stagger clusters diagonally with jitter so the flow feels organic
     let cursorY = 0;
@@ -123,13 +157,18 @@ export default function ConversationGraph({ messages }: { messages: Message[] })
     for (let c = 0; c < clusterCount; c++) {
       const x = (c % 2 === 0 ? 0 : 520) + jitter(c * 7 + 1, 120);
       clusterOrigins.push({ x, y: cursorY });
-      const rows = Math.ceil(Math.min(CLUSTER_SIZE, messages.length - c * CLUSTER_SIZE) / 2);
+      const size = clusterOf.filter((v) => v === c).length;
+      const rows = Math.max(1, Math.ceil(size / 2));
       cursorY += rows * (CARD_H + 60) + 180 + jitter(c * 13 + 5, 40);
     }
 
+    const posInCluster: number[] = new Array(messages.length).fill(0);
+    const counters: number[] = new Array(clusterCount).fill(0);
+    for (let i = 0; i < messages.length; i++) posInCluster[i] = counters[clusterOf[i]]++;
+
     messages.forEach((m, i) => {
-      const c = Math.floor(i / CLUSTER_SIZE);
-      const j = i % CLUSTER_SIZE;
+      const c = clusterOf[i];
+      const j = posInCluster[i];
       const col = j % 2;
       const row = Math.floor(j / 2);
       const origin = clusterOrigins[c];
@@ -140,29 +179,34 @@ export default function ConversationGraph({ messages }: { messages: Message[] })
           x: origin.x + CLUSTER_PAD + col * (CARD_W + 90) + jitter(i * 3 + 2, 36),
           y: origin.y + CLUSTER_PAD + 12 + row * (CARD_H + 58) + jitter(i * 5 + 3, 22),
         },
-        data: { fullId: m.id, role: m.role, summary: summarize(m.content), tags: actionTags(m) },
+        data: {
+          fullId: m.id,
+          role: m.role,
+          summary: titleOf.get(i) ?? summarize(m.content),
+          tags: tagsOf.get(i) ?? actionTags(m),
+        },
         zIndex: 1,
       });
     });
 
     // cluster boxes sized to their nodes
     for (let c = 0; c < clusterCount; c++) {
-      const members = messageNodes.filter((_, i) => Math.floor(i / CLUSTER_SIZE) === c);
+      const members = messageNodes.filter((_, i) => clusterOf[i] === c);
       if (members.length === 0) continue;
       const minX = Math.min(...members.map((n) => n.position.x));
       const minY = Math.min(...members.map((n) => n.position.y));
       const maxX = Math.max(...members.map((n) => n.position.x + CARD_W));
       const maxY = Math.max(...members.map((n) => n.position.y + CARD_H));
       const color = CLUSTER_COLORS[c % CLUSTER_COLORS.length];
-      const firstUser = messages
-        .slice(c * CLUSTER_SIZE, (c + 1) * CLUSTER_SIZE)
-        .find((m) => m.role === 'user');
+      const firstUser = messages.find((m, i) => clusterOf[i] === c && m.role === 'user');
       clusterNodes.push({
         id: `cluster-${c}`,
         type: 'cluster',
         position: { x: minX - CLUSTER_PAD, y: minY - CLUSTER_PAD },
         data: {
-          label: firstUser ? summarize(firstUser.content, 16) : `话题 ${c + 1}`,
+          label:
+            clusterLabels[c] ??
+            (firstUser ? summarize(firstUser.content, 16) : `话题 ${c + 1}`),
           color,
           w: maxX - minX + CLUSTER_PAD * 2,
           h: maxY - minY + CLUSTER_PAD * 2,
@@ -173,11 +217,37 @@ export default function ConversationGraph({ messages }: { messages: Message[] })
       });
     }
 
+    // semantic non-linear edges (reference / correction)
+    const flowLabelOf = new Map<number, string>();
+    analysis?.edges.forEach((e, k) => {
+      if (e.kind === 'flow') {
+        if (e.label && e.target === e.source + 1) flowLabelOf.set(e.source, e.label);
+        return;
+      }
+      const correction = e.kind === 'correction';
+      const color = correction ? '#ef4444' : '#8b5cf6';
+      edges.push({
+        id: `sem-${k}`,
+        source: messages[e.source].id,
+        target: messages[e.target].id,
+        type: 'default',
+        markerEnd: { type: MarkerType.ArrowClosed, color },
+        style: { stroke: color, strokeWidth: 2 },
+        label: e.label,
+        labelBgStyle: { fill: '#ffffff', stroke: color },
+        labelBgPadding: [6, 3],
+        labelBgBorderRadius: 8,
+        labelStyle: { fontSize: 10, fill: color, fontWeight: 600 },
+        zIndex: 3,
+      });
+    });
+
     messages.slice(1).forEach((m, i) => {
       const prev = messages[i];
-      const crossCluster = Math.floor(i / CLUSTER_SIZE) !== Math.floor((i + 1) / CLUSTER_SIZE);
+      const crossCluster = clusterOf[i] !== clusterOf[i + 1];
       const color = crossCluster ? '#f8a29a' : EDGE_COLORS[(i * 7) % EDGE_COLORS.length];
-      const labelled = prev.role === 'user' && (crossCluster || i % 3 === 0);
+      const semLabel = flowLabelOf.get(i);
+      const labelled = semLabel != null || (!analysis && prev.role === 'user' && (crossCluster || i % 3 === 0));
       edges.push({
         id: `e-${i}`,
         source: prev.id,
@@ -185,7 +255,7 @@ export default function ConversationGraph({ messages }: { messages: Message[] })
         type: 'default',
         markerEnd: { type: MarkerType.ArrowClosed, color },
         style: { stroke: color, strokeWidth: crossCluster ? 2 : 1.5 },
-        label: labelled ? summarize(prev.content, 14) : undefined,
+        label: labelled ? (semLabel ?? summarize(prev.content, 14)) : undefined,
         labelBgStyle: { fill: '#ffffff', stroke: '#e2e8f0' },
         labelBgPadding: [6, 3],
         labelBgBorderRadius: 8,
@@ -195,7 +265,7 @@ export default function ConversationGraph({ messages }: { messages: Message[] })
     });
 
     return { nodes: [...clusterNodes, ...messageNodes], edges };
-  }, [messages]);
+  }, [messages, analysis]);
 
   if (messages.length === 0) {
     return <p className="p-10 text-center text-sm text-gray-400">该对话没有消息</p>;
