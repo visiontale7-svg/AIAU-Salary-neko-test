@@ -113,17 +113,39 @@ function ClusterNode({ data }: { data: { label: string; color: (typeof CLUSTER_C
   );
 }
 
-// semantic edge with its label near the source end (avoids midpoint collisions with cards)
-function SemanticEdge(props: EdgeProps<{ label?: string; color: string }>) {
+interface Rect { x: number; y: number; w: number; h: number }
+
+function labelClearOfCards(x: number, y: number, rects: Rect[]): boolean {
+  const hw = 60;
+  const hh = 14;
+  return !rects.some(
+    (r) => x + hw > r.x && x - hw < r.x + r.w && y + hh > r.y && y - hh < r.y + r.h
+  );
+}
+
+// semantic edge with a collision-aware label position along the connection
+function SemanticEdge(props: EdgeProps<{ label?: string; color: string; rects?: Rect[] }>) {
   const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, data } = props;
-  const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
-  // anchor the label a fixed distance past the source card edge, nudged off the line
+  const [path, midX, midY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
   const dx = targetX - sourceX;
   const dy = targetY - sourceY;
   const len = Math.hypot(dx, dy) || 1;
-  const dist = Math.min(110, len * 0.45);
-  const lx = sourceX + (dx / len) * dist - (dy / len) * 18;
-  const ly = sourceY + (dy / len) * dist + (dx / len) * 18;
+  const px = -dy / len;
+  const py = dx / len;
+  let lx = midX;
+  let ly = midY;
+  const rects = data?.rects ?? [];
+  outer: for (const t of [0.5, 0.35, 0.65, 0.25, 0.75, 0.15, 0.85]) {
+    for (const off of [0, 30, -30, 55, -55]) {
+      const cx = sourceX + dx * t + px * off;
+      const cy = sourceY + dy * t + py * off;
+      if (labelClearOfCards(cx, cy, rects)) {
+        lx = cx;
+        ly = cy;
+        break outer;
+      }
+    }
+  }
   return (
     <>
       <BaseEdge path={path} markerEnd={markerEnd} style={style} />
@@ -204,13 +226,15 @@ export default function ConversationGraph({
     const order = Array.from({ length: clusterCount }, (_, c) => c).sort(
       (a, b) => heightOf(b) - heightOf(a)
     );
+    // loose organic placement: columns closer together and heavy jitter so
+    // cluster boxes drift, vary and may slightly overlap like the mock
     for (const c of order) {
       const gc = colY.indexOf(Math.min(...colY));
       clusterOrigins[c] = {
-        x: gc * (maxClusterW + 150) + jitter(c * 7 + 1, 60),
-        y: colY[gc] + jitter(c * 13 + 5, 40),
+        x: gc * (maxClusterW - 60) + jitter(c * 7 + 1, 170),
+        y: colY[gc] + jitter(c * 13 + 5, 110),
       };
-      colY[gc] += heightOf(c) + 170;
+      colY[gc] += heightOf(c) + 60 + jitter(c * 3 + 9, 60);
     }
 
     const posInCluster: number[] = new Array(messages.length).fill(0);
@@ -228,8 +252,12 @@ export default function ConversationGraph({
         id: m.id,
         type: 'message',
         position: {
-          x: origin.x + CLUSTER_PAD + col * (CARD_W + 90) + jitter(i * 3 + 2, 36),
-          y: origin.y + CLUSTER_PAD + 12 + row * (CARD_H + 58) + jitter(i * 5 + 3, 22),
+          x:
+            origin.x + CLUSTER_PAD + col * (CARD_W + 110) +
+            (row % 2 === 1 ? 70 : 0) + jitter(i * 3 + 2, 85),
+          y:
+            origin.y + CLUSTER_PAD + 12 + row * (CARD_H + 70) +
+            (col % 2 === 1 ? 45 : 0) + jitter(i * 5 + 3, 48),
         },
         data: {
           fullId: m.id,
@@ -269,6 +297,13 @@ export default function ConversationGraph({
       });
     }
 
+    const cardRects: Rect[] = messageNodes.map((n) => ({
+      x: n.position.x,
+      y: n.position.y,
+      w: CARD_W,
+      h: CARD_H,
+    }));
+
     // semantic non-linear edges (reference / correction)
     const flowLabelOf = new Map<number, string>();
     analysis?.edges.forEach((e, k) => {
@@ -285,7 +320,7 @@ export default function ConversationGraph({
         type: 'semantic',
         markerEnd: { type: MarkerType.ArrowClosed, color },
         style: { stroke: color, strokeWidth: 2, opacity: 0.85 },
-        data: { label: e.label, color },
+        data: { label: e.label, color, rects: cardRects },
         zIndex: 3,
       });
     });
