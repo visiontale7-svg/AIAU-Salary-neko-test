@@ -434,6 +434,7 @@ function GraphInner({
         markerEnd: { type: MarkerType.ArrowClosed, color },
         style: { stroke: color, strokeWidth: 2 },
         data: { label: e.label, color, rects: cardRects },
+        interactionWidth: 0,
         zIndex: 3,
       });
     });
@@ -456,6 +457,7 @@ function GraphInner({
         labelBgPadding: [6, 3],
         labelBgBorderRadius: 8,
         labelStyle: { fontSize: 10, fill: '#94a3b8', fontWeight: 600 },
+        interactionWidth: 0,
         zIndex: 2,
       });
     });
