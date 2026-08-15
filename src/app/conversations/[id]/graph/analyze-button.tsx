@@ -36,7 +36,7 @@ export default function AnalyzeButton({
       <button
         onClick={run}
         disabled={loading}
-        className="rounded-full bg-gradient-to-r from-cyan-500 to-violet-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 shadow-[0_0_18px_rgba(56,189,248,0.35)] transition hover:shadow-[0_0_26px_rgba(168,85,247,0.5)] disabled:opacity-50"
+        className="rounded-full border-[1.5px] border-stone-800 bg-[#ffd84d] px-3.5 py-1.5 text-xs font-bold text-stone-900 shadow-[0_3px_0_rgba(41,37,36,0.85)] transition hover:-translate-y-[1px] hover:shadow-[0_4px_0_rgba(41,37,36,0.85)] active:translate-y-[1px] active:shadow-[0_1px_0_rgba(41,37,36,0.85)] disabled:opacity-50"
       >
         {loading ? '分析中…' : hasAnalysis ? '重新语义分析' : '语义分析'}
       </button>

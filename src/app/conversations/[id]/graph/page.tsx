@@ -31,22 +31,22 @@ export default async function GraphPage({ params }: { params: { id: string } }) 
   }
 
   return (
-    <main className="flex h-screen flex-col bg-slate-950">
-      <header className="flex items-center gap-4 border-b border-white/10 bg-slate-950/90 px-6 py-3 backdrop-blur">
-        <Link href={`/conversations/${conv.id}`} className="text-sm text-slate-400 transition hover:text-cyan-300">
+    <main className="flex h-screen flex-col bg-[#faf7f0]">
+      <header className="flex items-center gap-4 border-b-[1.5px] border-[#e3ddcd] bg-[#fffdf7] px-6 py-3">
+        <Link href={`/conversations/${conv.id}`} className="text-sm font-semibold text-stone-500 transition hover:text-amber-600">
           ← 返回对话
         </Link>
-        <h1 className="truncate text-sm font-semibold text-slate-100">
+        <h1 className="truncate text-sm font-bold text-stone-800">
           {conv.title}
-          <span className="ml-2 text-slate-500">· 结构图</span>
+          <span className="ml-2 font-medium text-stone-400">· 结构图</span>
         </h1>
         <span className="ml-auto flex items-center gap-3">
           {conv.analysis ? (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />已语义分析
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />已语义分析
             </span>
           ) : (
-            <span className="text-xs text-slate-500">启发式布局</span>
+            <span className="text-xs text-stone-400">启发式布局</span>
           )}
           <AnalyzeButton conversationId={conv.id} hasAnalysis={!!conv.analysis} />
         </span>

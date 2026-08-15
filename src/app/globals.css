@@ -26,19 +26,23 @@ body {
   }
 }
 
-/* ---- conversation structure graph (dark neon canvas) ---- */
+/* ---- conversation structure graph (FigJam-style paper canvas) ---- */
 
 .graph-canvas {
   background:
-    radial-gradient(1200px 700px at 18% 12%, rgba(56, 189, 248, 0.1), transparent 60%),
-    radial-gradient(1000px 700px at 82% 78%, rgba(168, 85, 247, 0.12), transparent 60%),
-    linear-gradient(160deg, #060b1a 0%, #020617 55%, #050a17 100%);
+    radial-gradient(900px 600px at 12% 8%, rgba(255, 214, 102, 0.16), transparent 62%),
+    radial-gradient(900px 620px at 88% 82%, rgba(147, 197, 253, 0.18), transparent 62%),
+    radial-gradient(700px 500px at 60% 40%, rgba(236, 72, 153, 0.07), transparent 65%),
+    #faf7f0;
 }
 
 @keyframes graph-node-in {
   from {
     opacity: 0;
-    transform: translateY(18px) scale(0.96);
+    transform: translateY(14px) scale(0.9);
+  }
+  60% {
+    transform: translateY(0) scale(1.03);
   }
   to {
     opacity: 1;
@@ -81,14 +85,15 @@ body {
   animation: graph-panel-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* subtle glow on every edge + faster dash animation for semantic branches */
+/* marker strokes: no fill, soft paper shadow, flowing dashes for semantic edges */
 .graph-canvas .react-flow__edge-path {
-  filter: drop-shadow(0 0 3px rgba(148, 163, 184, 0.35));
+  fill: none;
+  filter: drop-shadow(0 1px 1px rgba(120, 113, 96, 0.25));
 }
 
 .graph-canvas .react-flow__edge.animated .react-flow__edge-path {
-  stroke-dasharray: 6 7;
-  animation: dashdraw 0.45s linear infinite;
+  stroke-dasharray: 7 8;
+  animation: dashdraw 0.55s linear infinite;
 }
 
 .graph-canvas .react-flow__node-message {
@@ -100,15 +105,15 @@ body {
 }
 
 .graph-controls button {
-  background: rgba(2, 6, 23, 0.85) !important;
-  border-color: rgba(148, 163, 184, 0.2) !important;
-  color: #cbd5e1 !important;
+  background: #fffdf7 !important;
+  border-color: #e3ddcd !important;
+  color: #57534e !important;
 }
 
 .graph-controls button:hover {
-  background: rgba(30, 41, 59, 0.95) !important;
+  background: #fef3c7 !important;
 }
 
 .graph-controls svg {
-  fill: #cbd5e1;
+  fill: #57534e;
 }

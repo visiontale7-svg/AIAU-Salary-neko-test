@@ -8,7 +8,6 @@ import ReactFlow, {
   BaseEdge,
   Controls,
   EdgeLabelRenderer,
-  getBezierPath,
   Handle,
   MiniMap,
   Position,
@@ -19,7 +18,6 @@ import ReactFlow, {
   type Node,
   type NodeChange,
   type NodeMouseHandler,
-  MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -37,21 +35,44 @@ export interface GraphPositions {
   [messageId: string]: { x: number; y: number };
 }
 
-const CARD_W = 300;
-const CARD_H = 150;
+const CARD_W = 264;
+const CARD_H = 176;
 const CLUSTER_SIZE = 6; // messages per topic cluster when no semantic analysis
-const CLUSTER_PAD = 48;
+const CLUSTER_PAD = 56;
 
-// neon palette for cluster boxes / dots on the dark canvas
+// marker-pen palette for the topic frames
 const CLUSTER_COLORS = [
-  { stroke: '#34d399', glow: 'rgba(52,211,153,0.55)', fill: 'rgba(16,185,129,0.06)' },
-  { stroke: '#38bdf8', glow: 'rgba(56,189,248,0.55)', fill: 'rgba(14,165,233,0.06)' },
-  { stroke: '#fbbf24', glow: 'rgba(251,191,36,0.5)', fill: 'rgba(245,158,11,0.06)' },
-  { stroke: '#fb7185', glow: 'rgba(251,113,133,0.5)', fill: 'rgba(244,63,94,0.06)' },
-  { stroke: '#a78bfa', glow: 'rgba(167,139,250,0.55)', fill: 'rgba(139,92,246,0.06)' },
+  { stroke: '#0f9d76', tint: 'rgba(16,185,129,0.045)' },
+  { stroke: '#2f7fe0', tint: 'rgba(59,130,246,0.045)' },
+  { stroke: '#e08a12', tint: 'rgba(245,158,11,0.05)' },
+  { stroke: '#e2568c', tint: 'rgba(236,72,153,0.045)' },
+  { stroke: '#7c53e0', tint: 'rgba(139,92,246,0.045)' },
 ];
 
-const PEER_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#4ade80', '#c084fc', '#fb923c'];
+// sticky-note colours per role
+const STICKY = {
+  user: {
+    from: '#fff59a',
+    to: '#ffe873',
+    border: '#e6c94f',
+    ink: '#7a5c00',
+    badgeBg: '#fdf0a8',
+  },
+  assistant: {
+    from: '#cdeeff',
+    to: '#b3e2ff',
+    border: '#7ec4e8',
+    ink: '#0d5c80',
+    badgeBg: '#e0f4ff',
+  },
+};
+
+const PENCIL = '#4b5563';
+const REFERENCE = '#8b5cf6';
+const CORRECTION = '#ef4444';
+const CROSS = '#f59e0b';
+
+const PEER_COLORS = ['#2f7fe0', '#e2568c', '#e08a12', '#0f9d76', '#7c53e0', '#ef4444'];
 const PEER_NAMES = ['星尘', '夜航', '拾光', '回声', '溯洄', '微光'];
 
 function summarize(text: string, max = 42): string {
@@ -59,10 +80,14 @@ function summarize(text: string, max = 42): string {
   return clean.length > max ? clean.slice(0, max) + '…' : clean;
 }
 
-// deterministic pseudo-random jitter so the generated layout is stable
-function jitter(seed: number, range: number): number {
+// deterministic pseudo-random in [-0.5, 0.5]
+function noise(seed: number): number {
   const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
-  return (x - Math.floor(x) - 0.5) * 2 * range;
+  return x - Math.floor(x) - 0.5;
+}
+
+function jitter(seed: number, range: number): number {
+  return noise(seed) * 2 * range;
 }
 
 function actionTags(m: Message): string[] {
@@ -83,69 +108,176 @@ interface MessageNodeData {
   fullId: string;
   role: string;
   summary: string;
+  excerpt: string;
   tags: string[];
   index: number;
+  tilt: number;
+  tape: string;
   dim: boolean;
   active: boolean;
 }
 
+/** Sticky note. Outer div animates in, inner div carries the paper tilt. */
 function MessageNode({ data }: { data: MessageNodeData }) {
   const isUser = data.role === 'user';
-  const accent = isUser ? '#22d3ee' : '#c084fc';
-  const glow = isUser ? 'rgba(34,211,238,' : 'rgba(192,132,252,';
+  const s = isUser ? STICKY.user : STICKY.assistant;
   return (
     <div
-      className="graph-node-in group relative overflow-hidden rounded-2xl px-4 py-3 backdrop-blur-md transition-[opacity,transform,box-shadow] duration-300"
-      style={{
-        width: CARD_W,
-        animationDelay: `${Math.min(data.index * 45, 1400)}ms`,
-        opacity: data.dim ? 0.18 : 1,
-        transform: data.active ? 'scale(1.035)' : 'scale(1)',
-        background:
-          'linear-gradient(155deg, rgba(30,41,59,0.94) 0%, rgba(15,23,42,0.96) 60%, rgba(2,6,23,0.96) 100%)',
-        border: `1px solid ${glow}${data.active ? '0.85' : '0.32'})`,
-        boxShadow: data.active
-          ? `0 0 0 1px ${glow}0.5), 0 18px 46px rgba(2,6,23,0.85), 0 0 48px ${glow}0.45)`
-          : `0 10px 30px rgba(2,6,23,0.6), 0 0 22px ${glow}0.14)`,
-      }}
+      className="graph-node-in"
+      style={{ width: CARD_W, animationDelay: `${Math.min(data.index * 40, 1200)}ms` }}
     >
-      <Handle type="target" position={Position.Left} className="!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent" />
-      <Handle type="source" position={Position.Right} className="!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent" />
-      <span
-        className="absolute inset-y-0 left-0 w-[5px]"
-        style={{ background: `linear-gradient(180deg, ${accent}, ${glow}0.15))`, boxShadow: `0 0 14px ${accent}` }}
-      />
-      <span
-        className="absolute inset-x-0 top-0 h-[2px]"
-        style={{ background: `linear-gradient(90deg, ${accent}, transparent 75%)` }}
-      />
-      <div className="mb-2 flex items-center gap-2">
+      <div
+        className="relative rounded-[10px] px-4 pb-3 pt-4 transition-[opacity,transform,box-shadow] duration-200"
+        style={{
+          height: CARD_H,
+          background: `linear-gradient(158deg, ${s.from} 0%, ${s.to} 100%)`,
+          border: `1px solid ${s.border}`,
+          opacity: data.dim ? 0.28 : 1,
+          transform: `rotate(${data.tilt}deg) ${data.active ? 'scale(1.05)' : 'scale(1)'}`,
+          boxShadow: data.active
+            ? '0 18px 34px rgba(30,27,20,0.28), 0 3px 0 rgba(0,0,0,0.08)'
+            : '0 8px 18px rgba(30,27,20,0.16), 0 2px 0 rgba(0,0,0,0.06)',
+        }}
+      >
+        <Handle type="target" position={Position.Left} className="!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent" />
+        <Handle type="source" position={Position.Right} className="!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent" />
+        {/* washi tape in the topic colour */}
         <span
-          className="flex items-center gap-1 rounded-md px-2 py-[3px] text-[11px] font-bold tracking-wide"
+          className="absolute -top-[9px] left-1/2 h-[18px] w-[74px] -translate-x-1/2 rounded-[2px]"
           style={{
-            color: accent,
-            background: `${glow}0.14)`,
-            border: `1px solid ${glow}0.35)`,
-            boxShadow: `0 0 12px ${glow}0.25)`,
+            background: data.tape,
+            opacity: 0.55,
+            transform: `translateX(-50%) rotate(${data.tilt * -2.2}deg)`,
+            boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+          }}
+        />
+        <div className="mb-2 flex items-center gap-2">
+          <span
+            className="rounded-full px-2 py-[2px] text-[10px] font-extrabold tracking-wide"
+            style={{ color: s.ink, background: s.badgeBg, border: `1px solid ${s.border}` }}
+          >
+            {isUser ? '我' : 'GPT'}
+          </span>
+          <span className="text-[10px] font-bold" style={{ color: s.ink, opacity: 0.55 }}>
+            #{data.index + 1}
+          </span>
+        </div>
+        <p className="text-[15px] font-bold leading-snug text-[#2b2a24]">{data.summary}</p>
+        <p
+          className="mt-1.5 overflow-hidden text-[11px] leading-[1.5]"
+          style={{
+            color: s.ink,
+            opacity: 0.75,
+            display: '-webkit-box',
+            WebkitBoxOrient: 'vertical',
+            WebkitLineClamp: 3,
           }}
         >
-          <span className="text-[12px] leading-none">{isUser ? '◆' : '✦'}</span>
-          {isUser ? 'USER' : 'GPT'}
-        </span>
-        <span className="truncate font-mono text-[9px] tracking-tight text-slate-500">{data.fullId}</span>
-      </div>
-      <p className="mb-3 text-[15px] font-semibold leading-snug text-slate-50">{data.summary}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {data.tags.map((t) => (
+          {data.excerpt}
+        </p>
+        <div className="absolute inset-x-4 bottom-3 flex items-center gap-1.5">
+          {data.tags.map((t) => (
+            <span
+              key={t}
+              className="rounded-full bg-white/70 px-2 py-[2px] text-[10px] font-semibold"
+              style={{ color: s.ink, border: `1px dashed ${s.border}` }}
+            >
+              {t}
+            </span>
+          ))}
           <span
-            key={t}
-            className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-[2px] text-[9px] font-medium text-slate-300"
+            className="ml-auto max-w-[92px] truncate font-mono text-[8px]"
+            style={{ color: s.ink, opacity: 0.4 }}
           >
-            {t}
+            {data.fullId}
           </span>
-        ))}
+        </div>
       </div>
     </div>
+  );
+}
+
+// ---- hand-drawn geometry helpers ----
+
+function bez(t: number, p0: number, p1: number, p2: number, p3: number): number {
+  const u = 1 - t;
+  return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+}
+
+interface Sketch {
+  path: string;
+  midX: number;
+  midY: number;
+  endAngle: number;
+}
+
+/** Wobbly stroke between two points — reads as a marker line rather than a vector curve. */
+function sketchCurve(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  seed: number,
+  amp = 7
+): Sketch {
+  const d = Math.max(50, Math.abs(tx - sx) / 2);
+  const c1x = sx + d;
+  const c2x = tx - d;
+  const steps = 18;
+  const pts: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = bez(t, sx, c1x, c2x, tx);
+    const y = bez(t, sy, sy, ty, ty);
+    pts.push([x, y]);
+  }
+  const out: [number, number][] = pts.map(([x, y], i) => {
+    const t = i / steps;
+    const [px, py] = pts[Math.min(i + 1, steps)];
+    const [qx, qy] = pts[Math.max(i - 1, 0)];
+    const dx = px - qx;
+    const dy = py - qy;
+    const len = Math.hypot(dx, dy) || 1;
+    const w = noise(seed * 3.7 + i * 5.3) * amp * Math.sin(Math.PI * t);
+    return [x + (-dy / len) * w, y + (dx / len) * w];
+  });
+  const path = out.reduce((acc, [x, y], i) => acc + (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`), '');
+  const [ax, ay] = out[steps - 1];
+  const [bx, by] = out[steps];
+  return {
+    path,
+    midX: out[Math.floor(steps / 2)][0],
+    midY: out[Math.floor(steps / 2)][1],
+    endAngle: Math.atan2(by - ay, bx - ax),
+  };
+}
+
+function sketchSeg(x1: number, y1: number, x2: number, y2: number, seed: number, amp = 3): string {
+  const steps = 6;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  let out = '';
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const w = i === steps ? 0 : noise(seed + i * 3.1) * amp;
+    out += ` L ${x1 + dx * t + (-dy / len) * w} ${y1 + dy * t + (dx / len) * w}`;
+  }
+  return out;
+}
+
+/** Marker-drawn rounded rectangle. */
+function sketchRect(w: number, h: number, r: number, seed: number): string {
+  return (
+    `M ${r} 0` +
+    sketchSeg(r, 0, w - r, 0, seed + 1) +
+    ` Q ${w} 0 ${w} ${r}` +
+    sketchSeg(w, r, w, h - r, seed + 2) +
+    ` Q ${w} ${h} ${w - r} ${h}` +
+    sketchSeg(w - r, h, r, h, seed + 3) +
+    ` Q 0 ${h} 0 ${h - r}` +
+    sketchSeg(0, h - r, 0, r, seed + 4) +
+    ` Q 0 0 ${r} 0`
   );
 }
 
@@ -154,35 +286,42 @@ interface ClusterNodeData {
   color: (typeof CLUSTER_COLORS)[number];
   w: number;
   h: number;
+  seed: number;
+  tilt: number;
   dim: boolean;
 }
 
 function ClusterNode({ data }: { data: ClusterNodeData }) {
+  const path = useMemo(() => sketchRect(data.w, data.h, 34, data.seed), [data.w, data.h, data.seed]);
   return (
     <div
-      className="rounded-[30px] border-[1.5px] border-dashed transition-opacity duration-300"
+      className="relative transition-opacity duration-300"
       style={{
         width: data.w,
         height: data.h,
-        borderColor: data.color.stroke,
-        background: `radial-gradient(120% 90% at 12% 0%, ${data.color.glow.replace('0.5', '0.16').replace('0.55', '0.16')}, transparent 62%), ${data.color.fill}`,
-        boxShadow: `inset 0 0 90px ${data.color.fill}, 0 0 30px ${data.color.glow}`,
-        opacity: data.dim ? 0.25 : 0.85,
+        opacity: data.dim ? 0.4 : 1,
+        transform: `rotate(${data.tilt}deg)`,
       }}
     >
+      <svg width={data.w} height={data.h} className="absolute inset-0 overflow-visible">
+        <path d={path} fill={data.color.tint} stroke={data.color.stroke} strokeWidth={2.6} strokeLinecap="round" opacity={0.85} />
+        <path
+          d={sketchRect(data.w, data.h, 34, data.seed + 40)}
+          fill="none"
+          stroke={data.color.stroke}
+          strokeWidth={1.4}
+          strokeLinecap="round"
+          opacity={0.4}
+        />
+      </svg>
       <div
-        className="absolute -top-[18px] left-7 flex items-center gap-2 rounded-full px-4 py-[7px] text-[14px] font-semibold tracking-wide backdrop-blur"
+        className="absolute -top-[17px] left-8 flex items-center gap-2 rounded-full px-4 py-[6px] text-[14px] font-extrabold text-white"
         style={{
-          color: data.color.stroke,
-          background: 'rgba(2,6,23,0.85)',
-          border: `1px solid ${data.color.stroke}`,
-          boxShadow: `0 0 18px ${data.color.glow}`,
+          background: data.color.stroke,
+          boxShadow: '0 4px 12px rgba(30,27,20,0.22)',
+          transform: `rotate(${-data.tilt * 1.4}deg)`,
         }}
       >
-        <span
-          className="graph-pulse h-2 w-2 rounded-full"
-          style={{ background: data.color.stroke, boxShadow: `0 0 10px ${data.color.stroke}` }}
-        />
         {data.label}
       </div>
     </div>
@@ -192,57 +331,101 @@ function ClusterNode({ data }: { data: ClusterNodeData }) {
 interface Rect { x: number; y: number; w: number; h: number }
 
 function labelClearOfCards(x: number, y: number, rects: Rect[]): boolean {
-  const hw = 60;
+  const hw = 58;
   const hh = 14;
   return !rects.some((r) => x + hw > r.x && x - hw < r.x + r.w && y + hh > r.y && y - hh < r.y + r.h);
 }
 
-// semantic edge: glowing animated stroke + collision-aware label along the curve
-function SemanticEdge(props: EdgeProps<{ label?: string; color: string; rects?: Rect[]; dim?: boolean }>) {
-  const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, style, data } = props;
-  const [path, midX, midY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
-  const dx = targetX - sourceX;
-  const dy = targetY - sourceY;
-  const len = Math.hypot(dx, dy) || 1;
-  const px = -dy / len;
-  const py = dx / len;
-  let lx = midX;
-  let ly = midY;
-  const rects = data?.rects ?? [];
-  outer: for (const t of [0.5, 0.35, 0.65, 0.25, 0.75, 0.15, 0.85]) {
-    for (const off of [0, 30, -30, 55, -55]) {
-      const cx = sourceX + dx * t + px * off;
-      const cy = sourceY + dy * t + py * off;
-      if (labelClearOfCards(cx, cy, rects)) {
-        lx = cx;
-        ly = cy;
-        break outer;
+interface SketchEdgeData {
+  label?: string;
+  color: string;
+  rects?: Rect[];
+  dim?: boolean;
+  seed: number;
+  width: number;
+  double?: boolean;
+}
+
+/** All edges are hand-drawn: wobbly stroke, sketched arrow head, sticker label. */
+function SketchEdge(props: EdgeProps<SketchEdgeData>) {
+  const { sourceX, sourceY, targetX, targetY, style, data } = props;
+  const seed = data?.seed ?? 1;
+  const color = data?.color ?? PENCIL;
+  const dim = data?.dim ?? false;
+  const main = useMemo(
+    () => sketchCurve(sourceX, sourceY, targetX, targetY, seed),
+    [sourceX, sourceY, targetX, targetY, seed]
+  );
+  const ghost = useMemo(
+    () => (data?.double ? sketchCurve(sourceX, sourceY, targetX, targetY, seed + 17, 5) : null),
+    [data?.double, sourceX, sourceY, targetX, targetY, seed]
+  );
+
+  // arrow head drawn as two short marker strokes
+  const head = useMemo(() => {
+    const a = main.endAngle;
+    const l = 13;
+    const w1 = a + Math.PI - 0.42 + noise(seed) * 0.16;
+    const w2 = a + Math.PI + 0.42 + noise(seed + 2) * 0.16;
+    return (
+      `M ${targetX + Math.cos(w1) * l} ${targetY + Math.sin(w1) * l} L ${targetX} ${targetY} ` +
+      `L ${targetX + Math.cos(w2) * l} ${targetY + Math.sin(w2) * l}`
+    );
+  }, [main.endAngle, targetX, targetY, seed]);
+
+  let lx = main.midX;
+  let ly = main.midY;
+  if (data?.label) {
+    const rects = data.rects ?? [];
+    const dx = targetX - sourceX;
+    const dy = targetY - sourceY;
+    const len = Math.hypot(dx, dy) || 1;
+    const px = -dy / len;
+    const py = dx / len;
+    outer: for (const t of [0.5, 0.35, 0.65, 0.25, 0.75, 0.15, 0.85]) {
+      for (const off of [0, 30, -30, 55, -55]) {
+        const cx = sourceX + dx * t + px * off;
+        const cy = sourceY + dy * t + py * off;
+        if (labelClearOfCards(cx, cy, rects)) {
+          lx = cx;
+          ly = cy;
+          break outer;
+        }
       }
     }
   }
-  const color = data?.color ?? '#a855f7';
+
   return (
     <>
+      {ghost && (
+        <path
+          d={ghost.path}
+          fill="none"
+          stroke={color}
+          strokeWidth={(data?.width ?? 2) * 0.8}
+          strokeLinecap="round"
+          style={{ opacity: dim ? 0.05 : 0.35, pointerEvents: 'none' }}
+        />
+      )}
+      <BaseEdge path={main.path} style={style} interactionWidth={0} />
       <path
-        d={path}
+        d={head}
         fill="none"
         stroke={color}
-        strokeWidth={7}
+        strokeWidth={(data?.width ?? 2) + 0.4}
         strokeLinecap="round"
-        style={{ opacity: data?.dim ? 0.04 : 0.18, filter: 'blur(4px)', pointerEvents: 'none' }}
+        style={{ opacity: dim ? 0.06 : 1, pointerEvents: 'none' }}
       />
-      <BaseEdge path={path} markerEnd={markerEnd} style={style} interactionWidth={0} />
       {data?.label && (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan absolute rounded-full px-2 py-[2px] text-[10px] font-semibold backdrop-blur transition-opacity duration-300"
+            className="nodrag nopan absolute rounded-full bg-white px-2 py-[2px] text-[10px] font-bold transition-opacity duration-300"
             style={{
-              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px) rotate(${noise(seed) * 5}deg)`,
               color,
-              background: 'rgba(2,6,23,0.85)',
-              border: `1px solid ${color}`,
-              boxShadow: `0 0 14px ${color}55`,
-              opacity: data.dim ? 0.12 : 1,
+              border: `1.5px solid ${color}`,
+              boxShadow: '0 2px 6px rgba(30,27,20,0.14)',
+              opacity: dim ? 0.12 : 1,
               zIndex: 10,
             }}
           >
@@ -255,7 +438,7 @@ function SemanticEdge(props: EdgeProps<{ label?: string; color: string; rects?: 
 }
 
 const nodeTypes = { message: MessageNode, cluster: ClusterNode };
-const edgeTypes = { semantic: SemanticEdge };
+const edgeTypes = { sketch: SketchEdge };
 
 interface Peer {
   id: string;
@@ -277,12 +460,12 @@ function CursorLayer({ peers }: { peers: Peer[] }) {
           className="absolute transition-transform duration-100 ease-linear"
           style={{ transform: `translate(${p.x * zoom + x}px, ${p.y * zoom + y}px)` }}
         >
-          <svg width="18" height="24" viewBox="0 0 18 24" style={{ filter: `drop-shadow(0 0 6px ${p.color})` }}>
-            <path d="M2 1 L2 19 L7 14 L11 22 L15 20 L11 12 L17 11 Z" fill={p.color} stroke="#020617" strokeWidth="1" />
+          <svg width="18" height="24" viewBox="0 0 18 24" style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.3))' }}>
+            <path d="M2 1 L2 19 L7 14 L11 22 L15 20 L11 12 L17 11 Z" fill={p.color} stroke="#ffffff" strokeWidth="1.4" />
           </svg>
           <span
-            className="ml-3 whitespace-nowrap rounded-full px-2 py-[2px] text-[10px] font-semibold text-slate-900"
-            style={{ background: p.color, boxShadow: `0 0 12px ${p.color}` }}
+            className="ml-3 whitespace-nowrap rounded-full px-2 py-[2px] text-[10px] font-bold text-white"
+            style={{ background: p.color, boxShadow: '0 2px 8px rgba(30,27,20,0.25)' }}
           >
             {p.name}
           </span>
@@ -335,7 +518,7 @@ function GraphInner({
     const tagsOf = new Map<number, string[]>();
     analysis?.messages.forEach((m) => {
       titleOf.set(m.index, m.title);
-      if (Array.isArray(m.tags)) tagsOf.set(m.index, m.tags.slice(0, 3));
+      if (Array.isArray(m.tags)) tagsOf.set(m.index, m.tags.slice(0, 2));
     });
 
     const clusterSizes = new Array(clusterCount).fill(0);
@@ -380,8 +563,11 @@ function GraphInner({
           fullId: m.id,
           role: m.role,
           summary: titleOf.get(i) ?? summarize(m.content),
+          excerpt: summarize(m.content, 110),
           tags: tagsOf.get(i) ?? actionTags(m),
           index: i,
+          tilt: jitter(i * 11 + 7, 2.4),
+          tape: CLUSTER_COLORS[c % CLUSTER_COLORS.length].stroke,
           dim: false,
           active: false,
         },
@@ -407,6 +593,8 @@ function GraphInner({
           color,
           w: maxX - minX + CLUSTER_PAD * 2,
           h: maxY - minY + CLUSTER_PAD * 2,
+          seed: c * 9 + 3,
+          tilt: jitter(c * 17 + 4, 0.9),
           dim: false,
         },
         selectable: false,
@@ -424,16 +612,15 @@ function GraphInner({
         return;
       }
       const correction = e.kind === 'correction';
-      const color = correction ? '#fb7185' : '#c084fc';
+      const color = correction ? CORRECTION : REFERENCE;
       edges.push({
         id: `sem-${k}`,
         source: messages[e.source].id,
         target: messages[e.target].id,
-        type: 'semantic',
+        type: 'sketch',
         animated: true,
-        markerEnd: { type: MarkerType.ArrowClosed, color },
-        style: { stroke: color, strokeWidth: 2 },
-        data: { label: e.label, color, rects: cardRects },
+        style: { stroke: color, strokeWidth: 2.4, strokeLinecap: 'round' },
+        data: { label: e.label, color, rects: cardRects, seed: k * 6 + 11, width: 2.4, double: true },
         interactionWidth: 0,
         zIndex: 3,
       });
@@ -442,21 +629,24 @@ function GraphInner({
     messages.slice(1).forEach((m, i) => {
       const prev = messages[i];
       const crossCluster = clusterOf[i] !== clusterOf[i + 1];
-      const color = crossCluster ? '#f0abfc' : '#3f6b95';
+      const color = crossCluster ? CROSS : PENCIL;
       const semLabel = flowLabelOf.get(i);
       const labelled = semLabel != null || (!analysis && prev.role === 'user' && (crossCluster || i % 3 === 0));
+      const width = crossCluster ? 2.6 : 1.8;
       edges.push({
         id: `e-${i}`,
         source: prev.id,
         target: m.id,
-        type: 'default',
-        markerEnd: { type: MarkerType.ArrowClosed, color },
-        style: { stroke: color, strokeWidth: crossCluster ? 2 : 1.4 },
-        label: labelled ? semLabel ?? summarize(prev.content, 14) : undefined,
-        labelBgStyle: { fill: '#020617', stroke: '#1e293b' },
-        labelBgPadding: [6, 3],
-        labelBgBorderRadius: 8,
-        labelStyle: { fontSize: 10, fill: '#94a3b8', fontWeight: 600 },
+        type: 'sketch',
+        style: { stroke: color, strokeWidth: width, strokeLinecap: 'round', opacity: crossCluster ? 0.85 : 0.42 },
+        data: {
+          label: labelled ? semLabel ?? summarize(prev.content, 14) : undefined,
+          color,
+          rects: cardRects,
+          seed: i * 4 + 2,
+          width,
+          double: crossCluster,
+        },
         interactionWidth: 0,
         zIndex: 2,
       });
@@ -607,7 +797,7 @@ function GraphInner({
         const on = related == null || (related.has(e.source) && related.has(e.target));
         return {
           ...e,
-          style: { ...e.style, opacity: on ? 1 : 0.06 },
+          style: { ...e.style, opacity: on ? (e.style?.opacity as number | undefined) ?? 1 : 0.06 },
           data: e.data ? { ...e.data, dim: !on } : e.data,
           animated: e.animated && on,
         };
@@ -622,7 +812,10 @@ function GraphInner({
   const onNodeClick: NodeMouseHandler = useCallback(
     (_, node) => {
       const m = messages.find((x) => x.id === node.id);
-      if (m) setSelected(m);
+      if (m) {
+        setFocusId(null);
+        setSelected(m);
+      }
     },
     [messages]
   );
@@ -657,7 +850,7 @@ function GraphInner({
   }, [conversationId, base.generatedNodes]);
 
   if (messages.length === 0) {
-    return <p className="p-10 text-center text-sm text-slate-500">该对话没有消息</p>;
+    return <p className="p-10 text-center text-sm text-stone-500">该对话没有消息</p>;
   }
 
   return (
@@ -677,71 +870,77 @@ function GraphInner({
         proOptions={{ hideAttribution: false }}
         className="graph-canvas"
       >
-        <Background variant={BackgroundVariant.Dots} gap={26} size={1.4} color="#1e3a5f" />
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.6} color="#cfc9ba" />
         <Controls className="graph-controls" showInteractive={false} />
         <MiniMap
           pannable
           zoomable
-          maskColor="rgba(2,6,23,0.75)"
-          nodeColor={(n) => (n.type === 'cluster' ? 'transparent' : n.data?.role === 'user' ? '#22d3ee' : '#c084fc')}
-          style={{ background: 'rgba(2,6,23,0.9)', border: '1px solid #1e293b', borderRadius: 12 }}
+          maskColor="rgba(120,113,96,0.16)"
+          nodeColor={(n) =>
+            n.type === 'cluster' ? 'transparent' : n.data?.role === 'user' ? '#ffe873' : '#b3e2ff'
+          }
+          nodeStrokeColor="#a8a29e"
+          style={{ background: '#fffdf7', border: '1.5px solid #ddd6c7', borderRadius: 14 }}
         />
         <CursorLayer peers={peers} />
       </ReactFlow>
 
-      <div className="pointer-events-none absolute left-4 top-4 z-30 flex flex-col gap-2">
-        <div className="pointer-events-auto flex items-center gap-4 rounded-2xl border border-white/[0.08] bg-slate-950/70 px-4 py-2.5 text-[11px] text-slate-300 shadow-[0_10px_40px_rgba(2,6,23,0.7)] backdrop-blur-xl">
+      <div className="absolute left-4 top-4 z-30">
+        <div className="flex items-center gap-4 rounded-2xl border-[1.5px] border-[#e3ddcd] bg-white/95 px-4 py-2.5 text-[11px] font-semibold text-stone-600 shadow-[0_6px_18px_rgba(30,27,20,0.12)]">
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]" />用户
+            <span className="h-3 w-3 rotate-[-6deg] rounded-[3px] border border-[#e6c94f] bg-[#ffe873]" />我
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-purple-400 shadow-[0_0_10px_#c084fc]" />GPT
+            <span className="h-3 w-3 rotate-[5deg] rounded-[3px] border border-[#7ec4e8] bg-[#b3e2ff]" />GPT
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-[2px] w-5 bg-purple-400 shadow-[0_0_8px_#c084fc]" />语义引用
+            <span className="h-[2.5px] w-5 rounded-full bg-violet-500" />语义引用
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-[2px] w-5 bg-rose-400 shadow-[0_0_8px_#fb7185]" />纠正
+            <span className="h-[2.5px] w-5 rounded-full bg-red-500" />纠正
           </span>
-          <span className="h-4 w-px bg-white/10" />
+          <span className="h-4 w-px bg-stone-200" />
           <button
             onClick={resetLayout}
-            className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-medium text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300"
+            className="rounded-full border-[1.5px] border-stone-300 px-2.5 py-1 text-[10px] font-bold text-stone-600 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-700"
           >
             整理布局
           </button>
-          <span className="flex items-center gap-1.5 text-[10px] text-slate-400">
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${saving ? 'bg-amber-400' : 'graph-pulse bg-emerald-400'}`}
-            />
+          <span className="flex items-center gap-1.5 text-[10px] text-stone-500">
+            <span className={`h-1.5 w-1.5 rounded-full ${saving ? 'bg-amber-500' : 'graph-pulse bg-emerald-500'}`} />
             {saving ? '保存位置…' : `在线 ${peers.length + 1}`}
           </span>
         </div>
       </div>
 
       {selected && (
-        <aside className="graph-panel-in absolute right-0 top-0 z-30 flex h-full w-[380px] flex-col border-l border-white/10 bg-slate-950/92 backdrop-blur-xl">
-          <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+        <aside className="graph-panel-in absolute right-0 top-0 z-30 flex h-full w-[380px] flex-col border-l-[1.5px] border-[#e3ddcd] bg-[#fffdf7] shadow-[-8px_0_24px_rgba(30,27,20,0.12)]">
+          <div className="flex items-center gap-2 border-b border-[#eee7d8] px-4 py-3">
             <span
-              className="rounded-md px-1.5 py-[2px] text-[10px] font-bold"
-              style={{
-                color: selected.role === 'user' ? '#22d3ee' : '#c084fc',
-                border: `1px solid ${selected.role === 'user' ? '#22d3ee55' : '#c084fc55'}`,
-              }}
+              className="rounded-full px-2 py-[2px] text-[10px] font-extrabold"
+              style={
+                selected.role === 'user'
+                  ? { color: STICKY.user.ink, background: STICKY.user.from, border: `1px solid ${STICKY.user.border}` }
+                  : {
+                      color: STICKY.assistant.ink,
+                      background: STICKY.assistant.from,
+                      border: `1px solid ${STICKY.assistant.border}`,
+                    }
+              }
             >
-              {selected.role === 'user' ? 'USER' : 'GPT'}
+              {selected.role === 'user' ? '我' : 'GPT'}
             </span>
-            <span className="text-[11px] text-slate-400">#{selected.position + 1} 原文</span>
+            <span className="text-[11px] font-semibold text-stone-500">#{selected.position + 1} 原文</span>
             <button
               onClick={() => setSelected(null)}
-              className="ml-auto rounded px-2 text-slate-400 transition hover:text-slate-100"
+              className="ml-auto rounded px-2 text-stone-400 transition hover:text-stone-800"
             >
               ✕
             </button>
           </div>
           <div className="flex-1 overflow-auto px-4 py-4">
-            <p className="mb-3 break-all font-mono text-[9px] text-slate-600">{selected.id}</p>
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-200">{selected.content}</p>
+            <p className="mb-3 break-all font-mono text-[9px] text-stone-400">{selected.id}</p>
+            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-stone-800">{selected.content}</p>
           </div>
         </aside>
       )}
