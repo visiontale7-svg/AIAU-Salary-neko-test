@@ -35,7 +35,7 @@ const CLUSTER_COLORS = [
   { border: '#a78bfa', label: '#7c3aed', fill: 'rgba(167,139,250,0.07)' }, // violet
 ];
 
-const EDGE_COLORS = ['#94a3b8', '#93c5fd', '#c4b5fd', '#f8a29a', '#86efac'];
+const EDGE_COLORS = ['#94a3b8', '#93c5fd', '#c4b5fd', '#86efac'];
 
 function summarize(text: string, max = 42): string {
   const clean = text.replace(/\s+/g, ' ').trim();
