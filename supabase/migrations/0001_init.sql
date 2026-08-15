@@ -37,13 +37,15 @@ alter table conversations enable row level security;
 alter table messages enable row level security;
 alter table knowledge_cards enable row level security;
 
--- MVP: all authenticated team members share everything
-create policy "team read conversations" on conversations for select to authenticated using (true);
-create policy "team write conversations" on conversations for insert to authenticated with check (true);
-create policy "team read messages" on messages for select to authenticated using (true);
-create policy "team write messages" on messages for insert to authenticated with check (true);
-create policy "team read cards" on knowledge_cards for select to authenticated using (true);
-create policy "team write cards" on knowledge_cards for all to authenticated using (true) with check (true);
+-- MVP has no login UI yet: allow reads from the anon browser client.
+-- Writes go through server API routes using the service role.
+grant usage on schema public to anon, authenticated, service_role;
+grant select on conversations, messages, knowledge_cards to anon, authenticated;
+grant all on conversations, messages, knowledge_cards to service_role;
+
+create policy "read conversations" on conversations for select to anon, authenticated using (true);
+create policy "read messages" on messages for select to anon, authenticated using (true);
+create policy "read cards" on knowledge_cards for select to anon, authenticated using (true);
 
 -- realtime for collaborative updates
 alter publication supabase_realtime add table knowledge_cards;
