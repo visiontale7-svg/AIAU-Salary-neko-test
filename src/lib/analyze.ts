@@ -30,7 +30,7 @@ function openaiClient(): OpenAI {
   return _openai;
 }
 
-export const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || '5.6-luna';
+export const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'gpt-5.6-luna';
 
 const SYSTEM_PROMPT = `你是一个对话结构分析器。输入是一段编号的用户与AI的对话，输出 JSON，用于绘制对话结构图。
 要求：
