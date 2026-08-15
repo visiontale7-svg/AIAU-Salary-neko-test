@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 团队 LLM 知识库
 
-## Getting Started
+导入 ChatGPT 网页版导出的对话（conversations.json），用 LLM 自动提炼出结构化知识卡片（灵感 / 决策 / 权衡 / 已否决），支持团队共享、语义搜索与实时更新。
 
-First, run the development server:
+## 技术栈
+
+- Next.js 14 (App Router, TypeScript, Tailwind)
+- Supabase：Postgres + pgvector（语义检索）+ Realtime（协作实时更新）
+- OpenAI：知识提炼（gpt-4o-mini，可配置）+ 嵌入（text-embedding-3-small）
+
+## 本地开发
+
+1. 启动本地 Supabase 并应用迁移：
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+supabase start
+supabase db reset   # 应用 supabase/migrations
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. 复制 `.env.example` 为 `.env.local`，填入 `supabase start` 输出的 URL/anon key/service role key，以及 `OPENAI_API_KEY`。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. 启动：
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+## 使用方式
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. 在 ChatGPT 网页版：Settings → Data controls → Export data，从邮件里下载压缩包，取出 `conversations.json`。
+2. 打开首页，点击「导入 conversations.json」。导入会解析每个对话、按 `source_id` 去重、调用 LLM 提炼知识卡片并生成向量。
+3. 用顶部搜索框做语义搜索；卡片可跳回原对话全文。多人同时使用时卡片列表通过 Supabase Realtime 实时同步。
