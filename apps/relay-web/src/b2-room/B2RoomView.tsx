@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { RelayReadyRoomModel, RelayRoomCallbacks } from "@dialogue-atlas/relay-room";
 import { B2StarfieldCanvas } from "../b2-visual/B2StarfieldCanvas";
+import { B2ExecPanel } from "./B2ExecPanel";
 import { StarAura, StarBody } from "../b2-visual/StarOptics";
 import { buildB2RoomProjection, type B2RoomStar } from "./b2-room-model";
 import "./b2-room.css";
@@ -10,6 +11,14 @@ export interface B2RoomViewProps {
   callbacks?: RelayRoomCallbacks;
   onOpenStructuredView?(): void;
 }
+
+type WorkbenchTab = "conversation" | "nodes" | "exec";
+
+const TABS: { id: WorkbenchTab; label: string }[] = [
+  { id: "conversation", label: "对话" },
+  { id: "nodes", label: "节点" },
+  { id: "exec", label: "执行" },
+];
 
 interface DragState {
   nodeId: string;
@@ -58,6 +67,8 @@ function compactLabel(label: string): string {
 export function B2RoomView({ model, callbacks = {}, onOpenStructuredView }: B2RoomViewProps) {
   const projection = useMemo(() => buildB2RoomProjection(model), [model]);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [tab, setTab] = useState<WorkbenchTab>("conversation");
+  const activeRuns = model.bundle.devinRuns.filter((run) => ["queued", "working", "needs_input", "approval_needed"].includes(run.state)).length;
   const dragRef = useRef<DragState | null>(null);
   const selectedId = model.selection?.kind === "node" ? model.selection.id : undefined;
   const selected = projection.stars.find((star) => star.node.id === selectedId);
@@ -225,11 +236,45 @@ export function B2RoomView({ model, callbacks = {}, onOpenStructuredView }: B2Ro
       </section>
 
       <aside className="b2-live__workbench">
-        <div className="b2-live__tabs"><b>对话</b><span>节点</span><span>执行</span></div>
+        <div className="b2-live__tabs" role="tablist" aria-label="协作工作台">
+          {TABS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === entry.id}
+              className={tab === entry.id ? "is-active" : undefined}
+              onClick={() => setTab(entry.id)}
+            >
+              {entry.label}
+              {entry.id === "exec" && activeRuns > 0 ? <i aria-label={`${activeRuns} 个运行中`} /> : null}
+            </button>
+          ))}
+        </div>
         <section className="b2-live__room-status">
           <div><span className={`b2-live__connection is-${model.connection}`} /><strong>{model.connection === "live" ? "实时协作中" : model.connection}</strong></div>
           <small>revision {model.bundle.room.revision} · seq {model.bundle.lastActivitySeq}</small>
         </section>
+        {tab === "exec" ? <B2ExecPanel model={model} callbacks={callbacks} /> : null}
+        {tab === "nodes" ? (
+          <section className="b2-live__nodes" aria-label="节点列表">
+            {projection.stars.map((star) => (
+              <button
+                key={star.node.id}
+                type="button"
+                aria-pressed={star.node.id === selectedId}
+                onClick={() => select(star)}
+              >
+                <b>{star.node.label}</b>
+                <small>
+                  {star.node.origin === "source" ? "已发布来源" : "团队观点"}
+                  {" · "}确认 {star.node.review?.confirm ?? 0} · 质疑 {star.node.review?.challenge ?? 0}
+                </small>
+              </button>
+            ))}
+          </section>
+        ) : null}
+        {tab === "conversation" ? (
         <section className="b2-live__selection" aria-live="polite">
           {selected ? (
             <>
@@ -249,12 +294,15 @@ export function B2RoomView({ model, callbacks = {}, onOpenStructuredView }: B2Ro
             </>
           ) : <p className="b2-live__empty">选择一颗星，查看它在团队推理中的位置。</p>}
         </section>
+        ) : null}
+        {tab === "conversation" ? (
         <section className="b2-live__members">
           <h3>房间成员</h3>
           {model.presence.map((member) => (
             <div key={member.userId}><i>{initials(member.displayName)}</i><span>{member.displayName}<small>{member.role === "owner" ? "房主" : "成员"} · {displayTime(member.onlineAt)}</small></span></div>
           ))}
         </section>
+        ) : null}
         {model.notice ? <p className="b2-live__notice">{model.notice}</p> : null}
         <button type="button" className="b2-live__structured" onClick={onOpenStructuredView}>打开完整协作面板</button>
       </aside>
