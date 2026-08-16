@@ -13,6 +13,7 @@ export interface DevinProviderConfig {
   orgId: string;
   repo: typeof CANONICAL_REPOSITORY;
   maxAcuLimit: number;
+  baseUrl?: string;
 }
 
 export interface DevinProviderSnapshot {
@@ -47,6 +48,29 @@ export class DevinProviderError extends Error {
   }
 }
 
+// A local stub lets the complete owner path be exercised without a paid
+// provider turn. Only plain HTTP on the developer machine is accepted
+// (`host.docker.internal` is how a containerised local runtime reaches it), so
+// a deployed function can never be pointed at a third-party host.
+const LOCAL_STUB_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "host.docker.internal"]);
+
+function loopbackBaseUrl(value: string | undefined): string | undefined | null {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:"
+    || !LOCAL_STUB_HOSTS.has(url.hostname)
+    || url.username || url.password || url.search || url.hash) {
+    return null;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 export function readDevinProviderConfig(
   get: (name: string) => string | undefined,
 ): DevinProviderConfig | undefined {
@@ -56,15 +80,17 @@ export function readDevinProviderConfig(
   const maxAcuRaw = get("DEVIN_MAX_ACU_LIMIT")?.trim();
   if (!apiKey || !orgId || !repo || !maxAcuRaw) return undefined;
   const maxAcuLimit = Number(maxAcuRaw);
+  const baseUrl = loopbackBaseUrl(get("DEVIN_LOCAL_STUB_BASE_URL"));
   if (!/^cog_[A-Za-z0-9_-]{12,}$/.test(apiKey)
     || !/^org-[A-Za-z0-9_-]{3,124}$/.test(orgId)
     || repo !== CANONICAL_REPOSITORY
     || !Number.isInteger(maxAcuLimit)
     || maxAcuLimit < 1
-    || maxAcuLimit > 1000) {
+    || maxAcuLimit > 1000
+    || baseUrl === null) {
     return undefined;
   }
-  return { apiKey, orgId, repo, maxAcuLimit };
+  return baseUrl ? { apiKey, orgId, repo, maxAcuLimit, baseUrl } : { apiKey, orgId, repo, maxAcuLimit };
 }
 
 function object(value: unknown, context: string): Record<string, unknown> {
@@ -336,7 +362,7 @@ export class DevinV3Provider {
     let response: Response;
     try {
       response = await this.fetchImpl(
-        `${DEVIN_API_BASE_URL}/organizations/${encodeURIComponent(this.config.orgId)}/${path}`,
+        `${this.config.baseUrl ?? DEVIN_API_BASE_URL}/organizations/${encodeURIComponent(this.config.orgId)}/${path}`,
         {
           method: request.method,
           headers: {

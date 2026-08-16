@@ -24,6 +24,22 @@ Runtime configuration is server-only:
 Missing or malformed configuration returns `not_configured` and cannot issue a
 Devin request. CORS is defense in depth, not authorization.
 
+## Local no-cost provider stub
+
+`DEVIN_LOCAL_STUB_BASE_URL` replaces the provider base URL for local
+development only. It is accepted solely for `http://` loopback hosts
+(`127.0.0.1`, `localhost`, `[::1]`, `host.docker.internal`) with no credentials,
+query, or fragment; any other value fails the whole configuration closed, so a
+deployment cannot be redirected to a third-party host. `scripts/devin-provider-stub.mjs`
+serves the four v3 endpoints with a scripted queued → working → completed run:
+
+```bash
+node scripts/devin-provider-stub.mjs           # listens on 0.0.0.0:8799
+supabase functions serve --env-file <env>      # DEVIN_LOCAL_STUB_BASE_URL=http://host.docker.internal:8799/v3
+```
+
+The stub never contacts Devin and consumes no ACU.
+
 ## Paid-provider entitlement
 
 Anonymous room ownership is intentionally insufficient. A server operator must

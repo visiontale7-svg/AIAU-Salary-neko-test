@@ -56,6 +56,39 @@ describe("Devin v3 provider adapter", () => {
     expect(readDevinProviderConfig((name) => name === "DEVIN_API_KEY" ? "token" : values[name])).toBeUndefined();
   });
 
+  it("accepts a loopback stub base URL and refuses every other override", async () => {
+    const values: Record<string, string> = {
+      DEVIN_API_KEY: config.apiKey,
+      DEVIN_ORG_ID: config.orgId,
+      DEVIN_REPO: config.repo,
+      DEVIN_MAX_ACU_LIMIT: "7",
+    };
+    const withStub = (stub: string) => readDevinProviderConfig(
+      (name) => name === "DEVIN_LOCAL_STUB_BASE_URL" ? stub : values[name],
+    );
+    expect(withStub("http://127.0.0.1:8799/v3")).toEqual({ ...config, baseUrl: "http://127.0.0.1:8799/v3" });
+    expect(withStub("https://api.example.com/v3")).toBeUndefined();
+    expect(withStub("http://api.devin.ai/v3")).toBeUndefined();
+    expect(withStub("http://127.0.0.1:8799/v3?token=x")).toBeUndefined();
+    expect(withStub("not a url")).toBeUndefined();
+
+    const fetchMock = vi.fn(async (input: string) => {
+      void input;
+      return jsonResponse({
+        session_id: "devin-stub123",
+        url: "https://app.devin.ai/sessions/devin-stub123",
+        status: "new",
+      });
+    });
+    const provider = new DevinV3Provider(
+      { ...config, baseUrl: "http://127.0.0.1:8799/v3" },
+      fetchMock as unknown as typeof fetch,
+    );
+    await provider.createSession(brief, { roomId: ROOM_ID, clientRequestId: "request_stub_001" });
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toBe(`http://127.0.0.1:8799/v3/organizations/${config.orgId}/sessions`);
+  });
+
   it("creates a v3 Session with only the pinned repository, bounded ACU, and approved brief", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({
       session_id: "devin-session123",
