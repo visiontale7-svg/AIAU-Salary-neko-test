@@ -9,6 +9,7 @@ import { createRelayFixtureBundle, relayFixturePackage } from "./fixture";
 import {
   bootstrapRelayAnonymousClient,
   parseRelayRoute,
+  relayInviteShareUrl,
   RelayProductionApp,
   sanitizeRedeemedInviteRoute,
   validateRelayProductionConfig,
@@ -148,6 +149,11 @@ describe("Relay production bootstrap", () => {
     const history = { state: { retained: true }, replaceState: vi.fn() };
     expect(sanitizeRedeemedInviteRoute("room/with space", history)).toBe("/room/room%2Fwith%20space");
     expect(history.replaceState).toHaveBeenCalledWith({ retained: true }, "", "/room/room%2Fwith%20space");
+  });
+
+  it("builds a canonical invite share URL for a newly created room", () => {
+    expect(relayInviteShareUrl("https://relay.example/", "room/with space", "invite token"))
+      .toBe("https://relay.example/room/room%2Fwith%20space#invite=invite%20token");
   });
 
   it("validates public production configuration without exposing a fallback", () => {

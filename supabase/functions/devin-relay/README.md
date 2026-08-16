@@ -20,9 +20,31 @@ Runtime configuration is server-only:
 - `DEVIN_REPO`: must exactly equal the canonical repository above.
 - `DEVIN_MAX_ACU_LIMIT`: integer global ceiling. The actual request uses the
   lower of this value and the operator entitlement ceiling.
+- `DEVIN_API_BASE_URL` (optional): the tenant's own API base, e.g.
+  `https://api.devinenterprise.com/v3`. It defaults to `https://api.devin.ai/v3`
+  and only accepts `https` `/v3` URLs on a Devin-operated API host, with no
+  credentials, query, or fragment; anything else fails the configuration closed.
+  Enterprise tenants also return a bare Session id and a session link on their
+  own Devin host, both of which the provider and the database accept.
 
 Missing or malformed configuration returns `not_configured` and cannot issue a
 Devin request. CORS is defense in depth, not authorization.
+
+## Local no-cost provider stub
+
+`DEVIN_LOCAL_STUB_BASE_URL` replaces the provider base URL for local
+development only. It is accepted solely for `http://` loopback hosts
+(`127.0.0.1`, `localhost`, `[::1]`, `host.docker.internal`) with no credentials,
+query, or fragment; any other value fails the whole configuration closed, so a
+deployment cannot be redirected to a third-party host. `scripts/devin-provider-stub.mjs`
+serves the four v3 endpoints with a scripted queued → working → completed run:
+
+```bash
+node scripts/devin-provider-stub.mjs           # listens on 0.0.0.0:8799
+supabase functions serve --env-file <env>      # DEVIN_LOCAL_STUB_BASE_URL=http://host.docker.internal:8799/v3
+```
+
+The stub never contacts Devin and consumes no ACU.
 
 ## Paid-provider entitlement
 

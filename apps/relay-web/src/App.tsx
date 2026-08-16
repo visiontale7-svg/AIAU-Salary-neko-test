@@ -9,6 +9,8 @@ export interface RelayWebAppProps {
   realtime?: RelayRealtimeAdapter;
   initialRoomId?: string;
   initialInviteToken?: string;
+  /** Share URL of the invite minted when this client created the room. */
+  initialInviteShareUrl?: string;
   storage?: Storage | null;
   onInviteRedeemed?(roomId: string): void;
   readyView?: "classic" | "b2";
@@ -24,13 +26,14 @@ function queryDefaults(): { roomId?: string; inviteToken?: string } {
   };
 }
 
-export function RelayWebApp({ repository, realtime, initialRoomId, initialInviteToken, storage, onInviteRedeemed, readyView = "classic" }: RelayWebAppProps) {
+export function RelayWebApp({ repository, realtime, initialRoomId, initialInviteToken, initialInviteShareUrl, storage, onInviteRedeemed, readyView = "classic" }: RelayWebAppProps) {
   const defaults = queryDefaults();
   const controller = useRelayWebController({
     repository,
     realtime,
     initialRoomId: initialRoomId ?? defaults.roomId,
     initialInviteToken: initialInviteToken ?? defaults.inviteToken,
+    invite: initialInviteShareUrl ? { shareUrl: initialInviteShareUrl } : undefined,
     storage: storage === undefined && typeof window !== "undefined" ? window.localStorage : storage,
     onInviteRedeemed,
   });

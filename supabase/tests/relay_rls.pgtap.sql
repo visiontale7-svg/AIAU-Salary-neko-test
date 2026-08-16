@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(48);
+select plan(51);
 
 select is(
   (
@@ -419,6 +419,85 @@ select is(
   ),
   1,
   'stale recovery emits exactly one durable transition activity'
+);
+reset role;
+
+-- The seeded run stands in for a second provider attempt so the enterprise
+-- identity and follow-up echo policies are exercised on their own Session.
+insert into public.proposals(
+  id, room_id, atlas_version_id, target_type, target_id, operation, proposed_value,
+  rationale, status, created_by, client_mutation_id
+) values (
+  '40000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001',
+  '30000000-0000-7000-8000-000000000001', 'source_node', 'n001', 'replace_label',
+  '{"value":"C"}', 'fixture', 'accepted', '10000000-0000-7000-8000-000000000002',
+  'proposal-fixture-0003'
+);
+insert into public.proposal_decisions(
+  id, room_id, proposal_id, decision, rationale, room_revision, decided_by, client_mutation_id
+) values (
+  '50000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001',
+  '40000000-0000-7000-8000-000000000003', 'accepted', 'fixture', 1,
+  '10000000-0000-7000-8000-000000000001', 'decision-fixture-0003'
+);
+insert into public.action_briefs(
+  id, room_id, decision_id, title, objective, baseline_sha, allowed_files,
+  acceptance_commands, created_by, client_mutation_id
+) values (
+  '60000000-0000-7000-8000-000000000003', '20000000-0000-7000-8000-000000000001',
+  '50000000-0000-7000-8000-000000000003', 'Fixture three', 'Test three',
+  'dbee0babc7480f25205783a00d2fe96cb65d350d', array['supabase/**'], array['npm test'],
+  '10000000-0000-7000-8000-000000000001', 'brief-fixture-0003'
+);
+update public.devin_runs
+set provider_authorized = true,
+    action_brief_id = '60000000-0000-7000-8000-000000000003'
+where id = '70000000-0000-7000-8000-000000000001';
+
+set local role service_role;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select public.claim_devin_session_attempt(
+  '20000000-0000-7000-8000-000000000001',
+  '70000000-0000-7000-8000-000000000001'
+);
+select is(
+  public.update_devin_run_snapshot(
+    '20000000-0000-7000-8000-000000000001',
+    '70000000-0000-7000-8000-000000000001',
+    '{"externalSessionId":"90b8a150fa6c432aaa8f3e9647b55c21","externalUrl":"https://aiau.devinenterprise.com/sessions/90b8a150fa6c432aaa8f3e9647b55c21","state":"working"}'::jsonb
+  )->>'externalUrl',
+  'https://aiau.devinenterprise.com/sessions/90b8a150fa6c432aaa8f3e9647b55c21',
+  'an enterprise tenant Session identity is persisted'
+);
+select throws_ok(
+  $$select public.update_devin_run_snapshot(
+    '20000000-0000-7000-8000-000000000001',
+    '70000000-0000-7000-8000-000000000001',
+    '{"externalSessionId":"90b8a150fa6c432aaa8f3e9647b55c21","externalUrl":"https://aiau.devinenterprise.com.evil.example/sessions/90b8a150fa6c432aaa8f3e9647b55c21","state":"working"}'::jsonb
+  )$$,
+  '22023', 'invalid_devin_provider_snapshot',
+  'a look-alike Session host is rejected'
+);
+reset role;
+
+insert into public.devin_events(room_id, run_id, event_type, text, client_request_id)
+values (
+  '20000000-0000-7000-8000-000000000001', '70000000-0000-7000-8000-000000000001',
+  'owner_follow_up_attempted', '只读回复即可，不要写文件。', 'follow-up-fixture-0001'
+);
+
+set local role service_role;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select is(
+  public.append_devin_provider_events(
+    '20000000-0000-7000-8000-000000000001',
+    '70000000-0000-7000-8000-000000000001',
+    '[{"externalEventId":"event-echo","eventType":"provider_message","actorType":"devin","createdAt":"2026-08-16T03:55:00Z","text":"只读回复即可，不要写文件。"},
+      {"externalEventId":"event-answer","eventType":"provider_message","actorType":"devin","createdAt":"2026-08-16T03:56:00Z","text":"收到，已只读读取。"}]'::jsonb,
+    null
+  ),
+  1,
+  'a replayed owner follow-up is not appended to the run log twice'
 );
 reset role;
 

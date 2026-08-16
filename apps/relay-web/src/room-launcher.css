@@ -1,0 +1,92 @@
+.relay-launcher {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 24px;
+  background:
+    radial-gradient(1200px 600px at 20% 10%, rgba(78, 128, 208, 0.18), transparent 60%),
+    radial-gradient(900px 500px at 80% 80%, rgba(109, 93, 197, 0.16), transparent 60%),
+    #020810;
+  color: #dde6f5;
+  box-sizing: border-box;
+}
+
+.relay-launcher__card {
+  width: min(560px, 100%);
+  padding: 32px;
+  border: 1px solid rgba(140, 176, 232, 0.22);
+  border-radius: 16px;
+  background: rgba(8, 18, 34, 0.82);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.relay-launcher__card h1 {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.relay-launcher__card p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: rgba(200, 216, 240, 0.78);
+}
+
+.relay-launcher__card form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.relay-launcher__card label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(160, 188, 226, 0.72);
+}
+
+.relay-launcher__card input {
+  padding: 12px 14px;
+  border: 1px solid rgba(140, 176, 232, 0.28);
+  border-radius: 10px;
+  background: rgba(3, 10, 22, 0.9);
+  color: #eaf1ff;
+  font-size: 15px;
+}
+
+.relay-launcher__card input:focus-visible {
+  outline: 2px solid #6f9ce8;
+  outline-offset: 1px;
+}
+
+.relay-launcher__card button {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 10px 20px;
+  border: 1px solid rgba(140, 176, 232, 0.4);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(90, 140, 226, 0.9), rgba(56, 96, 176, 0.9));
+  color: #f2f7ff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.relay-launcher__card button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.relay-launcher__error {
+  margin: 16px 0 0;
+  color: #f0a3a3;
+  font-size: 13px;
+}
+
+.relay-launcher__hint {
+  margin: 20px 0 0;
+  font-size: 12px;
+  color: rgba(150, 172, 200, 0.6);
+}
