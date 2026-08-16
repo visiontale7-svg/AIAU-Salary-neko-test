@@ -20,6 +20,12 @@ Runtime configuration is server-only:
 - `DEVIN_REPO`: must exactly equal the canonical repository above.
 - `DEVIN_MAX_ACU_LIMIT`: integer global ceiling. The actual request uses the
   lower of this value and the operator entitlement ceiling.
+- `DEVIN_API_BASE_URL` (optional): the tenant's own API base, e.g.
+  `https://api.devinenterprise.com/v3`. It defaults to `https://api.devin.ai/v3`
+  and only accepts `https` `/v3` URLs on a Devin-operated API host, with no
+  credentials, query, or fragment; anything else fails the configuration closed.
+  Enterprise tenants also return a bare Session id and a session link on their
+  own Devin host, both of which the provider and the database accept.
 
 Missing or malformed configuration returns `not_configured` and cannot issue a
 Devin request. CORS is defense in depth, not authorization.

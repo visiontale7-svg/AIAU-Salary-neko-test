@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(25);
+select plan(27);
 
 select is(
   (
@@ -199,6 +199,36 @@ select is(
   public.create_devin_run('20000000-0000-7000-8000-000000000001', '60000000-0000-7000-8000-000000000002', 'owner-devin-0002', true)->'run'->>'statusDetail',
   'provider_quota_exhausted',
   'daily operator quota denies a second paid run'
+);
+reset role;
+
+create temporary table reserved_run on commit drop as
+select id from public.devin_runs where client_request_id = 'owner-devin-0001';
+grant select on reserved_run to service_role;
+
+set local role service_role;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select public.claim_devin_session_attempt(
+  '20000000-0000-7000-8000-000000000001',
+  (select id from reserved_run)
+);
+select is(
+  public.update_devin_run_snapshot(
+    '20000000-0000-7000-8000-000000000001',
+    (select id from reserved_run),
+    '{"externalSessionId":"90b8a150fa6c432aaa8f3e9647b55c21","externalUrl":"https://aiau.devinenterprise.com/sessions/90b8a150fa6c432aaa8f3e9647b55c21","state":"working"}'::jsonb
+  )->>'externalUrl',
+  'https://aiau.devinenterprise.com/sessions/90b8a150fa6c432aaa8f3e9647b55c21',
+  'an enterprise tenant Session identity is persisted'
+);
+select throws_ok(
+  $$select public.update_devin_run_snapshot(
+    '20000000-0000-7000-8000-000000000001',
+    (select id from reserved_run),
+    '{"externalSessionId":"90b8a150fa6c432aaa8f3e9647b55c21","externalUrl":"https://aiau.devinenterprise.com.evil.example/sessions/90b8a150fa6c432aaa8f3e9647b55c21","state":"working"}'::jsonb
+  )$$,
+  '22023', 'invalid_devin_provider_snapshot',
+  'a look-alike Session host is rejected'
 );
 reset role;
 

@@ -89,6 +89,26 @@ describe("Devin v3 provider adapter", () => {
       .toBe(`http://127.0.0.1:8799/v3/organizations/${config.orgId}/sessions`);
   });
 
+  it("accepts an enterprise API host and refuses every other base URL", () => {
+    const values: Record<string, string> = {
+      DEVIN_API_KEY: config.apiKey,
+      DEVIN_ORG_ID: config.orgId,
+      DEVIN_REPO: config.repo,
+      DEVIN_MAX_ACU_LIMIT: "7",
+    };
+    const withBase = (base: string) => readDevinProviderConfig(
+      (name) => name === "DEVIN_API_BASE_URL" ? base : values[name],
+    );
+    expect(withBase("https://api.devinenterprise.com/v3"))
+      .toEqual({ ...config, baseUrl: "https://api.devinenterprise.com/v3" });
+    expect(withBase("https://api.devin.ai/v3")).toEqual({ ...config, baseUrl: "https://api.devin.ai/v3" });
+    expect(withBase("https://api.evil.com/v3")).toBeUndefined();
+    expect(withBase("http://api.devinenterprise.com/v3")).toBeUndefined();
+    expect(withBase("https://api.devinenterprise.com/v1")).toBeUndefined();
+    expect(withBase("https://user:pass@api.devinenterprise.com/v3")).toBeUndefined();
+    expect(withBase("not a url")).toBeUndefined();
+  });
+
   it("creates a v3 Session with only the pinned repository, bounded ACU, and approved brief", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({
       session_id: "devin-session123",
@@ -232,7 +252,10 @@ describe("Devin v3 provider adapter", () => {
   it("rejects malformed session IDs and message totals before accepting provider data", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ status: "running" }));
     const provider = new DevinV3Provider(config, fetchMock as unknown as typeof fetch);
-    await expect(provider.getSession("session-without-prefix")).rejects.toMatchObject({
+    await expect(provider.getSession("../../organizations")).rejects.toMatchObject({
+      code: "invalid_provider_response",
+    });
+    await expect(provider.getSession("short")).rejects.toMatchObject({
       code: "invalid_provider_response",
     });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -245,6 +268,44 @@ describe("Devin v3 provider adapter", () => {
     })) as typeof fetch);
     await expect(badMessages.getMessages("devin-session123")).rejects.toMatchObject({
       code: "invalid_provider_response",
+    });
+  });
+
+  it("accepts an enterprise session shape: bare id, tenant URL, and absent message total", async () => {
+    const enterpriseId = "411bb43a7aa647e5b5a6cc92e815f755";
+    const created = new DevinV3Provider(config, (async () => jsonResponse({
+      session_id: enterpriseId,
+      url: `https://aiau.devinenterprise.com/sessions/${enterpriseId}`,
+      status: "running",
+      status_detail: "working",
+    })) as typeof fetch);
+    await expect(created.createSession(brief, {
+      roomId: ROOM_ID,
+      clientRequestId: "request_enterprise_001",
+    })).resolves.toMatchObject({
+      externalSessionId: enterpriseId,
+      externalUrl: `https://aiau.devinenterprise.com/sessions/${enterpriseId}`,
+      state: "working",
+    });
+
+    const offHost = new DevinV3Provider(config, (async () => jsonResponse({
+      session_id: enterpriseId,
+      url: `https://evil.example.com/sessions/${enterpriseId}`,
+      status: "running",
+    })) as typeof fetch);
+    await expect(offHost.createSession(brief, {
+      roomId: ROOM_ID,
+      clientRequestId: "request_enterprise_002",
+    })).rejects.toMatchObject({ code: "invalid_provider_response" });
+
+    const messages = new DevinV3Provider(config, (async () => jsonResponse({
+      items: [{ event_id: "event-01a0", message: "只读克隆完成", created_at: 1786851073 }],
+      end_cursor: null,
+      has_next_page: false,
+      total: null,
+    })) as typeof fetch);
+    await expect(messages.getMessages(enterpriseId)).resolves.toMatchObject({
+      events: [{ externalEventId: "event-01a0", text: "只读克隆完成" }],
     });
   });
 
