@@ -22,18 +22,26 @@ declare
   v_pull_request_url text;
   v_pull_request_state text;
   v_checks_state text;
+  v_poll_succeeded boolean := false;
 begin
   perform relay_private.assert_json_keys(
     p_input,
     array[
       'externalSessionId', 'externalUrl', 'state', 'statusDetail',
-      'pullRequestUrl', 'pullRequestState', 'checksState'
+      'pullRequestUrl', 'pullRequestState', 'checksState', 'pollSucceeded'
     ],
     'Devin provider snapshot'
   );
   if auth.role() is distinct from 'service_role' then
     raise exception using errcode = '42501', message = 'service_role_required';
   end if;
+  if p_input ? 'pollSucceeded'
+    and jsonb_typeof(p_input->'pollSucceeded') is distinct from 'boolean'
+  then
+    raise exception using errcode = '22023', message = 'invalid_devin_provider_snapshot';
+  end if;
+  v_poll_succeeded := coalesce((p_input->>'pollSucceeded')::boolean, false);
+
   select * into v_before
   from public.devin_runs
   where id = p_run_id and room_id = p_room_id
@@ -71,11 +79,7 @@ begin
     else v_before.checks_state
   end;
 
-  -- Provider polls can complete out of order across owner tabs. A stale
-  -- working snapshot must never reopen a terminal run. The pre-POST blocked
-  -- marker can become failed after an explicit 4xx rejection, or can attach
-  -- the one reconciled/returned external Session, but cannot otherwise become
-  -- active while its paid result is unknown.
+  -- Lifecycle state remains monotonic and independent of provider health.
   if v_before.state in ('completed', 'failed') then
     v_state := v_before.state;
     v_status_detail := v_before.status_detail;
@@ -91,7 +95,7 @@ begin
   if v_state not in ('not_configured', 'queued', 'working', 'needs_input', 'approval_needed', 'completed', 'failed', 'blocked')
     or (v_status_detail is not null and char_length(v_status_detail) > 2000)
     or (v_external_session_id is not null and (
-      char_length(v_external_session_id) not between 8 and 200
+      char_length(v_external_session_id) not between 3 and 200
       or v_external_session_id !~ '^(devin-)?[A-Za-z0-9_-]+$'
     ))
     or (v_external_url is not null and (
@@ -130,6 +134,10 @@ begin
       pull_request_url = v_pull_request_url,
       pull_request_state = v_pull_request_state,
       checks_state = v_checks_state,
+      provider_health = case when v_poll_succeeded then 'healthy' else provider_health end,
+      last_successful_poll_at = case when v_poll_succeeded then now() else last_successful_poll_at end,
+      consecutive_failures = case when v_poll_succeeded then 0 else consecutive_failures end,
+      retry_after_at = case when v_poll_succeeded then null else retry_after_at end,
       updated_at = now()
   where id = p_run_id
   returning * into v_row;
@@ -145,6 +153,14 @@ begin
   ) then
     perform relay_private.record_activity(
       p_room_id, 'devin_run_updated', p_run_id::text, v_before.requested_by, null
+    );
+  end if;
+  if v_before.provider_health = 'stale'
+    and v_row.provider_health = 'healthy'
+  then
+    perform relay_private.record_activity(
+      p_room_id, 'devin_provider_health_recovered', p_run_id::text,
+      v_before.requested_by, null
     );
   end if;
   return relay_private.format_devin_run(v_row);
