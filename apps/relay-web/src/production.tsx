@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RelayRoom } from "@dialogue-atlas/relay-room";
 import type { SupabaseClientLike } from "@dialogue-atlas/relay-supabase";
 import { RelayWebApp } from "./App";
+import { RoomLauncher } from "./RoomLauncher";
 import { createRelayWebAdapters, type RelayWebAdapters } from "./supabase-adapters";
 
 export interface RelayProductionConfig {
@@ -67,6 +68,10 @@ export function parseRelayRoute(location: RelayLocationLike): RelayRoute {
 
 export function canonicalRelayRoomPath(roomId: string): string {
   return `/room/${encodeURIComponent(roomId)}`;
+}
+
+export function relayInviteShareUrl(origin: string, roomId: string, inviteToken: string): string {
+  return `${origin.replace(/\/$/, "")}${canonicalRelayRoomPath(roomId)}#invite=${encodeURIComponent(inviteToken)}`;
 }
 
 export function sanitizeRedeemedInviteRoute(roomId: string, history: RelayHistoryLike): string {
@@ -149,14 +154,12 @@ export function RelayProductionApp({
     [effectiveLocation.hash, effectiveLocation.pathname, effectiveLocation.search],
   );
   const configError = validateRelayProductionConfig(effectiveConfig, allowLoopbackHttp);
-  const routeError = !route.roomId && !route.inviteToken
-    ? "Open a Relay room URL such as /room/:id or use an invite link. No public room listing is exposed."
-    : undefined;
   const [adapters, setAdapters] = useState<RelayWebAdapters | null>(null);
   const [authError, setAuthError] = useState<string | undefined>();
+  const [createdRoom, setCreatedRoom] = useState<{ roomId: string; shareUrl: string } | undefined>();
 
   useEffect(() => {
-    if (configError || routeError || !effectiveConfig.supabaseUrl || !effectiveConfig.supabasePublishableKey) return;
+    if (configError || !effectiveConfig.supabaseUrl || !effectiveConfig.supabasePublishableKey) return;
     let cancelled = false;
     void (async () => {
       const client = await bootstrapRelayAnonymousClient({
@@ -171,21 +174,36 @@ export function RelayProductionApp({
     });
 
     return () => { cancelled = true; };
-  }, [allowLoopbackHttp, configError, routeError, effectiveConfig.supabasePublishableKey, effectiveConfig.supabaseUrl]);
+  }, [allowLoopbackHttp, configError, effectiveConfig.supabasePublishableKey, effectiveConfig.supabaseUrl]);
 
-  const error = configError ?? routeError ?? authError;
+  const error = configError ?? authError;
   if (error) {
     return <RelayRoom model={{ phase: "error", message: error, retryable: false }} />;
   }
   if (!adapters) {
     return <RelayRoom model={{ phase: "anonymous_bootstrap", message: "Starting anonymous room access with the configured public client." }} />;
   }
+  if (!createdRoom && !route.roomId && !route.inviteToken) {
+    return (
+      <RoomLauncher
+        repository={adapters.repository}
+        onCreated={({ roomId, inviteToken }) => {
+          const targetHistory = history ?? (typeof window !== "undefined" ? window.history : undefined);
+          if (targetHistory) targetHistory.replaceState(targetHistory.state ?? null, "", canonicalRelayRoomPath(roomId));
+          const origin = typeof window !== "undefined" ? window.location.origin : "";
+          setCreatedRoom({ roomId, shareUrl: relayInviteShareUrl(origin, roomId, inviteToken) });
+        }}
+      />
+    );
+  }
   return (
     <RelayWebApp
+      key={createdRoom?.roomId ?? route.roomId ?? route.inviteToken}
       repository={adapters.repository}
       realtime={adapters.realtime}
-      initialRoomId={route.roomId}
-      initialInviteToken={route.inviteToken}
+      initialRoomId={createdRoom?.roomId ?? route.roomId}
+      initialInviteToken={createdRoom ? undefined : route.inviteToken}
+      initialInviteShareUrl={createdRoom?.shareUrl}
       storage={storage}
       readyView="b2"
       onInviteRedeemed={(roomId) => {

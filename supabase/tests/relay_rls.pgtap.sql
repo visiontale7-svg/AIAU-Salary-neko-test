@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(27);
+select plan(28);
 
 select is(
   (
@@ -229,6 +229,27 @@ select throws_ok(
   )$$,
   '22023', 'invalid_devin_provider_snapshot',
   'a look-alike Session host is rejected'
+);
+reset role;
+
+insert into public.devin_events(room_id, run_id, event_type, text, client_request_id)
+select
+  '20000000-0000-7000-8000-000000000001', id, 'owner_follow_up_attempted',
+  '只读回复即可，不要写文件。', 'follow-up-fixture-0001'
+from reserved_run;
+
+set local role service_role;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select is(
+  public.append_devin_provider_events(
+    '20000000-0000-7000-8000-000000000001',
+    (select id from reserved_run),
+    '[{"externalEventId":"event-echo","createdAt":"2026-08-16T03:55:00Z","text":"只读回复即可，不要写文件。"},
+      {"externalEventId":"event-answer","createdAt":"2026-08-16T03:56:00Z","text":"收到，已只读读取。"}]'::jsonb,
+    null
+  ),
+  1,
+  'a replayed owner follow-up is not appended to the run log twice'
 );
 reset role;
 

@@ -12,6 +12,7 @@ export interface RelayWebControllerOptions {
   initialRoomId?: string;
   initialInviteToken?: string;
   storage?: Storage | null;
+  invite?: { shareUrl: string };
   onInviteRedeemed?(roomId: string): void;
 }
 
@@ -26,7 +27,7 @@ export function useRelayWebController(options: RelayWebControllerOptions = {}): 
     initialBundle: staticMode ? fixtureBundle : undefined,
     initialPresence: staticMode ? fixturePresence : undefined,
     initialSelection: staticMode ? { kind: "node", id: "n005" } : undefined,
-    invite: staticMode ? { shareUrl: "https://relay.invalid/join/static-demo" } : undefined,
+    invite: staticMode ? { shareUrl: "https://relay.invalid/join/static-demo" } : options.invite,
     demoMode: staticMode,
   });
 }
